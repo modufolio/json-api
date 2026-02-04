@@ -258,7 +258,8 @@ final class JsonApiQueryBuilder
             ->setMaxResults(null)
             ->setFirstResult(0);
 
-        return $qb->executeQuery()->fetchOne() ?? 0;
+        $result = $qb->executeQuery()->fetchOne();
+        return $result !== false ? (int|float)$result : 0;
     }
 
     // ────────────────────────────────────────────────────────────────────────────────
@@ -643,7 +644,11 @@ final class JsonApiQueryBuilder
                 if (!$field) {
                     throw new InvalidArgumentException("No fields defined for target entity $targetClass in path $path");
                 }
-                $column = $targetMeta->fieldMappings[$field]['columnName'] ?? $field;
+                // Get column name, checking if field exists in mappings first
+                $column = $field;
+                if (isset($targetMeta->fieldMappings[$field])) {
+                    $column = $targetMeta->fieldMappings[$field]['columnName'] ?? $field;
+                }
 
                 if ($mapping['type'] & ClassMetadata::TO_ONE) {
                     // ManyToOne or OneToOne
@@ -741,7 +746,8 @@ final class JsonApiQueryBuilder
         foreach ($this->params as $key => $value) {
             $countQb->setParameter($key, $value);
         }
-        return (int)$countQb->executeQuery()->fetchOne();
+        $result = $countQb->executeQuery()->fetchOne();
+        return $result !== false ? (int)$result : 0;
     }
 
     // ────────────────────────────────────────────────────────────────────────────────
