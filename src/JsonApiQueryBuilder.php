@@ -673,7 +673,7 @@ final class JsonApiQueryBuilder
                         // Fallback to convention-based column name
                         $joinColumn = $mappedBy . '_id';
                     } else {
-                        $joinColumn = $inverseMeta['joinColumns'][0]['name'] ?? $mappedBy . '_id';
+                        $joinColumn = $inverseMeta['joinColumns'][0]['name'];
                     }
                     $condition = "$currentAlias.id = $joinAlias.$joinColumn";
                 }
