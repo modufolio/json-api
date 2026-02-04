@@ -93,4 +93,211 @@ class JsonApiUrlParserTest extends TestCase
         $this->assertSame(['query' => '', 'bindings' => []], $params->having);
         $this->assertNull($params->id);
     }
+
+    public function testFilterWithComplexOperators(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))
+            ->withQueryParams([
+                'filter' => [
+                    'title' => [
+                        'like' => '%hello%',
+                        'neq' => 'world'
+                    ],
+                    'author' => [
+                        'in' => 'john,jane,bob'  // comma-separated string should be converted to array
+                    ]
+                ]
+            ]);
+
+        $params = $this->parser->parse($request, 'App\\Entity\\Post');
+
+        $expectedFilters = [
+            'title' => [
+                'like' => '%hello%',
+                'neq' => 'world'
+            ],
+            'author' => [
+                'in' => ['john', 'jane', 'bob']  // Should be converted to array
+            ]
+        ];
+
+        $this->assertEquals($expectedFilters, $params->filter);
+    }
+
+    public function testFilterWithInOperatorAsArray(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))
+            ->withQueryParams([
+                'filter' => [
+                    'author' => [
+                        'in' => ['john', 'jane', 'bob']  // Already an array
+                    ]
+                ]
+            ]);
+
+        $params = $this->parser->parse($request, 'App\\Entity\\Post');
+
+        $expectedFilters = [
+            'author' => [
+                'in' => ['john', 'jane', 'bob']  // Should remain as array
+            ]
+        ];
+
+        $this->assertEquals($expectedFilters, $params->filter);
+    }
+
+    public function testFilterWithInOperatorNonStringNonArray(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))
+            ->withQueryParams([
+                'filter' => [
+                    'author' => [
+                        'in' => 123  // Neither string nor array - should be wrapped in array
+                    ]
+                ]
+            ]);
+
+        $params = $this->parser->parse($request, 'App\\Entity\\Post');
+
+        $expectedFilters = [
+            'author' => [
+                'in' => [123]  // Should be wrapped in array
+            ]
+        ];
+
+        $this->assertEquals($expectedFilters, $params->filter);
+    }
+
+    public function testFilterWithInvalidOperators(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))
+            ->withQueryParams([
+                'filter' => [
+                    'title' => [
+                        'invalid_operator' => 'value',  // Invalid operator - should be ignored
+                        'like' => '%hello%',            // Valid operator - should be kept
+                        'another_bad' => 'test'         // Another invalid operator - should be ignored
+                    ]
+                ]
+            ]);
+
+        $params = $this->parser->parse($request, 'App\\Entity\\Post');
+
+        $expectedFilters = [
+            'title' => [
+                'like' => '%hello%'  // Only valid operator should remain
+            ]
+        ];
+
+        $this->assertEquals($expectedFilters, $params->filter);
+    }
+
+    public function testFilterWithNonStringOperatorKeys(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))
+            ->withQueryParams([
+                'filter' => [
+                    'title' => [
+                        0 => 'numeric_key_ignored',  // Numeric key - should be ignored
+                        'like' => '%hello%',         // Valid string key - should be kept
+                        'eq' => 'test'              // Valid string key - should be kept
+                    ]
+                ]
+            ]);
+
+        $params = $this->parser->parse($request, 'App\\Entity\\Post');
+
+        $expectedFilters = [
+            'title' => [
+                'like' => '%hello%',
+                'eq' => 'test'
+            ]
+        ];
+
+        $this->assertEquals($expectedFilters, $params->filter);
+    }
+
+    public function testFilterWithAllValidOperators(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))
+            ->withQueryParams([
+                'filter' => [
+                    'title' => [
+                        'eq' => 'exact',
+                        'neq' => 'not_this',
+                        'not' => 'not_this_either',
+                        'gt' => '5',
+                        'gte' => '10',
+                        'lt' => '20',
+                        'lte' => '15',
+                        'like' => '%pattern%',
+                        'in' => 'a,b,c',
+                        'null' => true,
+                        'not_null' => true
+                    ]
+                ]
+            ]);
+
+        $params = $this->parser->parse($request, 'App\\Entity\\Post');
+
+        $expectedFilters = [
+            'title' => [
+                'eq' => 'exact',
+                'neq' => 'not_this',
+                'not' => 'not_this_either',
+                'gt' => '5',
+                'gte' => '10',
+                'lt' => '20',
+                'lte' => '15',
+                'like' => '%pattern%',
+                'in' => ['a', 'b', 'c'],
+                'null' => true,
+                'not_null' => true
+            ]
+        ];
+
+        $this->assertEquals($expectedFilters, $params->filter);
+    }
+
+    public function testFilterWithEmptyOperatorsArrayBecomesInOperator(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))
+            ->withQueryParams([
+                'filter' => [
+                    'title' => [],  // Empty array is treated as indexed array -> becomes 'in' operator with empty values
+                    'author' => 'john'  // Simple filter - should be kept
+                ]
+            ]);
+
+        $params = $this->parser->parse($request, 'App\\Entity\\Post');
+
+        $expectedFilters = [
+            'title' => [
+                'in' => []  // Empty array becomes empty 'in' operator
+            ],
+            'author' => 'john'
+        ];
+
+        $this->assertEquals($expectedFilters, $params->filter);
+    }
+
+    public function testFilterWithIndexedArrayBecomesInOperator(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))
+            ->withQueryParams([
+                'filter' => [
+                    'title' => ['value1', 'value2', 'value3']  // Indexed array should become 'in' operator
+                ]
+            ]);
+
+        $params = $this->parser->parse($request, 'App\\Entity\\Post');
+
+        $expectedFilters = [
+            'title' => [
+                'in' => ['value1', 'value2', 'value3']  // Should be converted to 'in' operator
+            ]
+        ];
+
+        $this->assertEquals($expectedFilters, $params->filter);
+    }
 }
