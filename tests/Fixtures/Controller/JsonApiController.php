@@ -130,306 +130,272 @@ class JsonApiController
 
     private function index(ServerRequestInterface $request, string $entityClass): ResponseInterface
     {
-        try {
-            $params = $this->parser->parse($request, $entityClass);
+        $params = $this->parser->parse($request, $entityClass);
 
-            $builder = new JsonApiQueryBuilder(
-                $this->config,
-                $this->em,
-                $this->em->getConnection(),
-                $entityClass,
-                $this->filterRegistry
-            );
+        $builder = new JsonApiQueryBuilder(
+            $this->config,
+            $this->em,
+            $this->em->getConnection(),
+            $entityClass,
+            $this->filterRegistry
+        );
 
-            $result = $builder
-                ->applyParams($params)
-                ->operation('index')
-                ->withTotalCount()
-                ->get();
+        $result = $builder
+            ->applyParams($params)
+            ->operation('index')
+            ->withTotalCount()
+            ->get();
 
-            $data = $result['data'] ?? $result;
-            $total = $result['total'] ?? count($data);
-            $page = $params->page['number'] ?? 1;
-            $perPage = $params->page['size'] ?? 25;
+        $data = $result['data'] ?? $result;
+        $total = $result['total'] ?? count($data);
+        $page = $params->page['number'] ?? 1;
+        $perPage = $params->page['size'] ?? 25;
 
+        $resourceKey = $this->config[$entityClass]['resource_key'];
+
+        // Create document with proper resource objects
+        $document = new JsonApiDocument();
+        $resources = [];
+
+        foreach ($data as $item) {
+            $resources[] = $this->createResourceObject($item, $resourceKey);
+        }
+
+        $document->setData($resources);
+
+        // Add pagination meta
+        $lastPage = (int)ceil($total / $perPage);
+        $from = $total > 0 ? (($page - 1) * $perPage) + 1 : 0;
+        $to = min($page * $perPage, $total);
+
+        $document->setMeta([
+            'total' => $total,
+            'per_page' => $perPage,
+            'current_page' => $page,
+            'last_page' => $lastPage,
+            'from' => $from,
+            'to' => $to,
+        ]);
+
+        // Add pagination links
+        $uri = $request->getUri();
+        $baseUrl = $uri->getScheme() . '://' . $uri->getHost();
+
+        // Add port if non-standard
+        $port = $uri->getPort();
+        if ($port && (($uri->getScheme() === 'http' && $port !== 80) || ($uri->getScheme() === 'https' && $port !== 443))) {
+            $baseUrl .= ':' . $port;
+        }
+
+        // Add path without query string and trailing slash
+        $baseUrl .= rtrim($uri->getPath(), '/');
+
+        $queryString = $this->buildQueryString($params);
+        $document->setLinks($this->buildPaginationLinks($baseUrl, $queryString, $page, $lastPage, $perPage));
+
+        return $this->jsonApiResponse($document);
+    }
+
+    private function show(ServerRequestInterface $request, string $entityClass, ?int $id): ResponseInterface
+    {
+        $params = $this->parser->parse($request, $entityClass);
+        $params->id = (string)$id;
+
+        $builder = new JsonApiQueryBuilder(
+            $this->config,
+            $this->em,
+            $this->em->getConnection(),
+            $entityClass,
+            $this->filterRegistry
+        );
+
+        $result = $builder
+            ->applyParams($params)
+            ->operation('show')
+            ->get();
+
+        if (empty($result)) {
             $resourceKey = $this->config[$entityClass]['resource_key'];
+            return $this->errorResponse(ucfirst($resourceKey) . " not found", 404);
+        }
 
-            // Create document with proper resource objects
+        $resourceKey = $this->config[$entityClass]['resource_key'];
+        // executeShow now returns an array with one item in JSON:API format
+        $item = $result[0];
+
+        $document = new JsonApiDocument();
+        $document->setData($this->createResourceObject($item, $resourceKey));
+
+        return $this->jsonApiResponse($document);
+    }
+
+    private function create(ServerRequestInterface $request, string $entityClass): ResponseInterface
+    {
+        $payload = json_decode($request->getBody()->getContents(), true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return $this->errorResponse('Invalid JSON: ' . json_last_error_msg(), 400);
+        }
+
+        $resourceKey = $this->config[$entityClass]['resource_key'];
+        $contentType = $request->getHeaderLine('Content-Type');
+
+        // Normalize input based on content type (supports both JSON:API and plain JSON)
+        $normalized = $this->inputNormalizer->normalize($payload, $contentType, $resourceKey);
+        $data = $this->inputNormalizer->mergeData($normalized);
+
+        $entity = new $entityClass();
+
+        $this->populateEntity($entity, $data, $entityClass);
+
+        $violations = $this->validator->validate($entity);
+
+        if ($violations->count() > 0) {
+            return $this->validationErrorResponse($violations);
+        }
+
+        $this->em->persist($entity);
+        $this->em->flush();
+
+        $document = new JsonApiDocument();
+        $document->setData($this->transformEntityToResourceObject($entity, $resourceKey, $entityClass));
+
+        return $this->jsonApiResponse($document, 201);
+    }
+
+    private function update(ServerRequestInterface $request, string $entityClass, ?int $id): ResponseInterface
+    {
+        $entity = $this->em->getRepository($entityClass)->find($id);
+
+        if (!$entity) {
+            $resourceKey = $this->config[$entityClass]['resource_key'];
+            return $this->errorResponse(ucfirst($resourceKey) . " not found", 404);
+        }
+
+        $payload = json_decode($request->getBody()->getContents(), true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return $this->errorResponse('Invalid JSON: ' . json_last_error_msg(), 400);
+        }
+
+        $resourceKey = $this->config[$entityClass]['resource_key'];
+        $contentType = $request->getHeaderLine('Content-Type');
+
+        // Normalize input based on content type (supports both JSON:API and plain JSON)
+        $normalized = $this->inputNormalizer->normalize($payload, $contentType, $resourceKey);
+        $data = $this->inputNormalizer->mergeData($normalized);
+
+        $this->populateEntity($entity, $data, $entityClass);
+
+        $violations = $this->validator->validate($entity);
+
+        if ($violations->count() > 0) {
+            return $this->validationErrorResponse($violations);
+        }
+
+        $this->em->flush();
+
+        $document = new JsonApiDocument();
+        $document->setData($this->transformEntityToResourceObject($entity, $resourceKey, $entityClass));
+
+        return $this->jsonApiResponse($document);
+    }
+
+    private function delete(string $entityClass, ?int $id): ResponseInterface
+    {
+        $entity = $this->em->getRepository($entityClass)->find($id);
+
+        if (!$entity) {
+            $resourceKey = $this->config[$entityClass]['resource_key'];
+            return $this->errorResponse(ucfirst($resourceKey) . " not found", 404);
+        }
+
+        // Use soft delete if available
+        if (method_exists($entity, 'softDelete')) {
+            $entity->softDelete();
+        } else {
+            $this->em->remove($entity);
+        }
+
+        $this->em->flush();
+
+        return $this->responseFactory->empty(204);
+    }
+
+    private function related(ServerRequestInterface $request, string $entityClass, ?int $id, ?string $relationship): ResponseInterface
+    {
+        $entity = $this->em->getRepository($entityClass)->find($id);
+
+        if (!$entity) {
+            $resourceKey = $this->config[$entityClass]['resource_key'];
+            return $this->errorResponse(ucfirst($resourceKey) . " not found", 404);
+        }
+
+        $getterMethod = 'get' . ucfirst($relationship);
+        if (!method_exists($entity, $getterMethod)) {
+            return $this->errorResponse("Relationship '$relationship' not found", 404);
+        }
+
+        $relatedData = $entity->$getterMethod();
+
+        // Handle collection relationships
+        if ($relatedData instanceof Collection) {
+            $queryParams = $request->getQueryParams();
+            $pagination = JsonApiSerializer::parsePaginationParams($queryParams);
+
+            $relatedArray = $relatedData->toArray();
+            $total = count($relatedArray);
+
+            // Manual pagination
+            $offset = ($pagination['number'] - 1) * $pagination['size'];
+            $items = array_slice($relatedArray, $offset, $pagination['size']);
+
+            // Get target entity class
+            $metadata = $this->em->getClassMetadata($entityClass);
+            $targetClass = $metadata->getAssociationTargetClass($relationship);
+            $targetResourceKey = $this->config[$targetClass]['resource_key'] ?? Str::snake(class_basename($targetClass));
+
             $document = new JsonApiDocument();
             $resources = [];
 
-            foreach ($data as $item) {
-                $resources[] = $this->createResourceObject($item, $resourceKey);
+            foreach ($items as $item) {
+                $resources[] = $this->transformEntityToResourceObject($item, $targetResourceKey, $targetClass);
             }
 
             $document->setData($resources);
 
             // Add pagination meta
-            $lastPage = (int)ceil($total / $perPage);
-            $from = $total > 0 ? (($page - 1) * $perPage) + 1 : 0;
-            $to = min($page * $perPage, $total);
+            $lastPage = (int)ceil($total / $pagination['size']);
+            $from = $total > 0 ? (($pagination['number'] - 1) * $pagination['size']) + 1 : 0;
+            $to = min($pagination['number'] * $pagination['size'], $total);
 
             $document->setMeta([
                 'total' => $total,
-                'per_page' => $perPage,
-                'current_page' => $page,
+                'per_page' => $pagination['size'],
+                'current_page' => $pagination['number'],
                 'last_page' => $lastPage,
                 'from' => $from,
                 'to' => $to,
             ]);
 
-            // Add pagination links
-            $uri = $request->getUri();
-            $baseUrl = $uri->getScheme() . '://' . $uri->getHost();
-
-            // Add port if non-standard
-            $port = $uri->getPort();
-            if ($port && (($uri->getScheme() === 'http' && $port !== 80) || ($uri->getScheme() === 'https' && $port !== 443))) {
-                $baseUrl .= ':' . $port;
-            }
-
-            // Add path without query string and trailing slash
-            $baseUrl .= rtrim($uri->getPath(), '/');
-
-            $queryString = $this->buildQueryString($params);
-            $document->setLinks($this->buildPaginationLinks($baseUrl, $queryString, $page, $lastPage, $perPage));
-
             return $this->jsonApiResponse($document);
-        } catch (\InvalidArgumentException $e) {
-            return $this->errorResponse($e->getMessage(), 400);
-        } catch (\Exception $e) {
-            // In development/testing, show the actual error
-            $message = getenv('APP_ENV') === 'production' ? 'Internal server error' : $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine();
-            return $this->errorResponse($message, 500);
         }
-    }
 
-    private function show(ServerRequestInterface $request, string $entityClass, ?int $id): ResponseInterface
-    {
-        try {
-            $params = $this->parser->parse($request, $entityClass);
-            $params->id = (string)$id;
-
-            $builder = new JsonApiQueryBuilder(
-                $this->config,
-                $this->em,
-                $this->em->getConnection(),
-                $entityClass,
-                $this->filterRegistry
-            );
-
-            $result = $builder
-                ->applyParams($params)
-                ->operation('show')
-                ->get();
-
-            if (empty($result)) {
-                $resourceKey = $this->config[$entityClass]['resource_key'];
-                return $this->errorResponse(ucfirst($resourceKey) . " not found", 404);
-            }
-
-            $resourceKey = $this->config[$entityClass]['resource_key'];
-            // executeShow now returns an array with one item in JSON:API format
-            $item = $result[0];
+        // Handle single relationships
+        if ($relatedData) {
+            $relatedClass = get_class($relatedData);
+            $resourceKey = $this->config[$relatedClass]['resource_key'] ?? Str::snake(class_basename($relatedClass));
 
             $document = new JsonApiDocument();
-            $document->setData($this->createResourceObject($item, $resourceKey));
+            $document->setData($this->transformEntityToResourceObject($relatedData, $resourceKey, $relatedClass));
 
             return $this->jsonApiResponse($document);
-        } catch (\Exception $e) {
-            // In development/testing, show the actual error
-            $message = getenv('APP_ENV') === 'production' ? 'Internal server error' : $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine();
-            return $this->errorResponse($message, 500);
         }
-    }
 
-    private function create(ServerRequestInterface $request, string $entityClass): ResponseInterface
-    {
-        try {
-            $payload = json_decode($request->getBody()->getContents(), true);
+        $document = new JsonApiDocument();
+        $document->setData(null);
 
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                return $this->errorResponse('Invalid JSON: ' . json_last_error_msg(), 400);
-            }
-
-            $resourceKey = $this->config[$entityClass]['resource_key'];
-            $contentType = $request->getHeaderLine('Content-Type');
-
-            // Normalize input based on content type (supports both JSON:API and plain JSON)
-            $normalized = $this->inputNormalizer->normalize($payload, $contentType, $resourceKey);
-            $data = $this->inputNormalizer->mergeData($normalized);
-
-            $entity = new $entityClass();
-
-            $this->populateEntity($entity, $data, $entityClass);
-
-            $violations = $this->validator->validate($entity);
-
-            if ($violations->count() > 0) {
-                return $this->validationErrorResponse($violations);
-            }
-
-            $this->em->persist($entity);
-            $this->em->flush();
-
-            $document = new JsonApiDocument();
-            $document->setData($this->transformEntityToResourceObject($entity, $resourceKey, $entityClass));
-
-            return $this->jsonApiResponse($document, 201);
-        } catch (InvalidArgumentException $e) {
-            return $this->errorResponse($e->getMessage(), 400);
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
-        }
-    }
-
-    private function update(ServerRequestInterface $request, string $entityClass, ?int $id): ResponseInterface
-    {
-        try {
-            $entity = $this->em->getRepository($entityClass)->find($id);
-
-            if (!$entity) {
-                $resourceKey = $this->config[$entityClass]['resource_key'];
-                return $this->errorResponse(ucfirst($resourceKey) . " not found", 404);
-            }
-
-            $payload = json_decode($request->getBody()->getContents(), true);
-
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                return $this->errorResponse('Invalid JSON: ' . json_last_error_msg(), 400);
-            }
-
-            $resourceKey = $this->config[$entityClass]['resource_key'];
-            $contentType = $request->getHeaderLine('Content-Type');
-
-            // Normalize input based on content type (supports both JSON:API and plain JSON)
-            $normalized = $this->inputNormalizer->normalize($payload, $contentType, $resourceKey);
-            $data = $this->inputNormalizer->mergeData($normalized);
-
-            $this->populateEntity($entity, $data, $entityClass);
-
-            $violations = $this->validator->validate($entity);
-
-            if ($violations->count() > 0) {
-                return $this->validationErrorResponse($violations);
-            }
-
-            $this->em->flush();
-
-            $document = new JsonApiDocument();
-            $document->setData($this->transformEntityToResourceObject($entity, $resourceKey, $entityClass));
-
-            return $this->jsonApiResponse($document);
-        } catch (InvalidArgumentException $e) {
-            return $this->errorResponse($e->getMessage(), 400);
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
-        }
-    }
-
-    private function delete(string $entityClass, ?int $id): ResponseInterface
-    {
-        try {
-            $entity = $this->em->getRepository($entityClass)->find($id);
-
-            if (!$entity) {
-                $resourceKey = $this->config[$entityClass]['resource_key'];
-                return $this->errorResponse(ucfirst($resourceKey) . " not found", 404);
-            }
-
-            // Use soft delete if available
-            if (method_exists($entity, 'softDelete')) {
-                $entity->softDelete();
-            } else {
-                $this->em->remove($entity);
-            }
-
-            $this->em->flush();
-
-            return $this->responseFactory->empty(204);
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 400);
-        }
-    }
-
-    private function related(ServerRequestInterface $request, string $entityClass, ?int $id, ?string $relationship): ResponseInterface
-    {
-        try {
-            $entity = $this->em->getRepository($entityClass)->find($id);
-
-            if (!$entity) {
-                $resourceKey = $this->config[$entityClass]['resource_key'];
-                return $this->errorResponse(ucfirst($resourceKey) . " not found", 404);
-            }
-
-            $getterMethod = 'get' . ucfirst($relationship);
-            if (!method_exists($entity, $getterMethod)) {
-                return $this->errorResponse("Relationship '$relationship' not found", 404);
-            }
-
-            $relatedData = $entity->$getterMethod();
-
-            // Handle collection relationships
-            if ($relatedData instanceof Collection) {
-                $queryParams = $request->getQueryParams();
-                $pagination = JsonApiSerializer::parsePaginationParams($queryParams);
-
-                $relatedArray = $relatedData->toArray();
-                $total = count($relatedArray);
-
-                // Manual pagination
-                $offset = ($pagination['number'] - 1) * $pagination['size'];
-                $items = array_slice($relatedArray, $offset, $pagination['size']);
-
-                // Get target entity class
-                $metadata = $this->em->getClassMetadata($entityClass);
-                $targetClass = $metadata->getAssociationTargetClass($relationship);
-                $targetResourceKey = $this->config[$targetClass]['resource_key'] ?? Str::snake(class_basename($targetClass));
-
-                $document = new JsonApiDocument();
-                $resources = [];
-
-                foreach ($items as $item) {
-                    $resources[] = $this->transformEntityToResourceObject($item, $targetResourceKey, $targetClass);
-                }
-
-                $document->setData($resources);
-
-                // Add pagination meta
-                $lastPage = (int)ceil($total / $pagination['size']);
-                $from = $total > 0 ? (($pagination['number'] - 1) * $pagination['size']) + 1 : 0;
-                $to = min($pagination['number'] * $pagination['size'], $total);
-
-                $document->setMeta([
-                    'total' => $total,
-                    'per_page' => $pagination['size'],
-                    'current_page' => $pagination['number'],
-                    'last_page' => $lastPage,
-                    'from' => $from,
-                    'to' => $to,
-                ]);
-
-                return $this->jsonApiResponse($document);
-            }
-
-            // Handle single relationships
-            if ($relatedData) {
-                $relatedClass = get_class($relatedData);
-                $resourceKey = $this->config[$relatedClass]['resource_key'] ?? Str::snake(class_basename($relatedClass));
-
-                $document = new JsonApiDocument();
-                $document->setData($this->transformEntityToResourceObject($relatedData, $resourceKey, $relatedClass));
-
-                return $this->jsonApiResponse($document);
-            }
-
-            $document = new JsonApiDocument();
-            $document->setData(null);
-
-            return $this->jsonApiResponse($document);
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 400);
-        }
+        return $this->jsonApiResponse($document);
     }
 
     private function createResourceObject(array $item, string $resourceKey): ResourceObject
@@ -696,30 +662,25 @@ class JsonApiController
             return true;
         }
 
-        try {
-            // Parse all media types in the Accept header
-            $mediaTypes = $this->negotiator->getBest($accept, [self::JSON_API_MEDIA_TYPE]);
+        // Parse all media types in the Accept header
+        $mediaTypes = $this->negotiator->getBest($accept, [self::JSON_API_MEDIA_TYPE]);
 
-            if ($mediaTypes === null) {
-                // JSON:API not in Accept header or not acceptable
-                return true;
-            }
-
-            // Validate JSON:API media type parameters
-            $parameters = $mediaTypes->getParameters();
-
-            // Only 'ext', 'profile', and 'q' (quality) are allowed
-            foreach (array_keys($parameters) as $param) {
-                if (!in_array($param, ['ext', 'profile', 'q'], true)) {
-                    return false;
-                }
-            }
-
+        if ($mediaTypes === null) {
+            // JSON:API not in Accept header or not acceptable
             return true;
-        } catch (\Exception $e) {
-            // Invalid Accept header format
-            return false;
         }
+
+        // Validate JSON:API media type parameters
+        $parameters = $mediaTypes->getParameters();
+
+        // Only 'ext', 'profile', and 'q' (quality) are allowed
+        foreach (array_keys($parameters) as $param) {
+            if (!in_array($param, ['ext', 'profile', 'q'], true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
