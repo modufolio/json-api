@@ -259,7 +259,8 @@ final class JsonApiQueryBuilder
             ->setFirstResult(0);
 
         $result = $qb->executeQuery()->fetchOne();
-        return $result !== false ? (int|float)$result : 0;
+        // Return float to preserve precision for aggregates like AVG
+        return $result !== false ? (float)$result : 0;
     }
 
     // ────────────────────────────────────────────────────────────────────────────────
