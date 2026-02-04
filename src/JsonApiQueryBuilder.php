@@ -260,6 +260,8 @@ final class JsonApiQueryBuilder
 
         $result = $qb->executeQuery()->fetchOne();
         // Return float to preserve precision for aggregates like AVG
+        // fetchOne() returns false when there are no rows (valid for empty result sets)
+        // Database errors throw exceptions, so 0 is the correct default for no results
         return $result !== false ? (float)$result : 0;
     }
 
@@ -656,8 +658,8 @@ final class JsonApiQueryBuilder
                     if (empty($mapping['joinColumns'][0])) {
                         throw new InvalidArgumentException("Missing join column configuration for TO_ONE association $segment in path $path");
                     }
-                    $joinColumn = $mapping['joinColumns'][0]['name'] ?? 'id';
-                    $referencedColumn = $mapping['joinColumns'][0]['referencedColumnName'] ?? 'id';
+                    $joinColumn = $mapping['joinColumns'][0]['name'] ?? throw new InvalidArgumentException("Missing 'name' in join column for $segment");
+                    $referencedColumn = $mapping['joinColumns'][0]['referencedColumnName'] ?? throw new InvalidArgumentException("Missing 'referencedColumnName' in join column for $segment");
                     $condition = "$currentAlias.$joinColumn = $joinAlias.$referencedColumn";
                 } elseif (isset($mapping['joinTable'])) {
                     // ManyToMany - has a join table
@@ -665,7 +667,7 @@ final class JsonApiQueryBuilder
                     if (empty($mapping['joinTable']['joinColumns'][0])) {
                         throw new InvalidArgumentException("Missing join column configuration for MANY_TO_MANY association $segment in path $path");
                     }
-                    $joinColumn = $mapping['joinTable']['joinColumns'][0]['name'];
+                    $joinColumn = $mapping['joinTable']['joinColumns'][0]['name'] ?? throw new InvalidArgumentException("Missing 'name' in join column for $segment");
                     $condition = "$currentAlias.id = $joinTable.$joinColumn";
                 } else {
                     // OneToMany - no join table, use foreign key on target table
@@ -748,6 +750,7 @@ final class JsonApiQueryBuilder
             $countQb->setParameter($key, $value);
         }
         $result = $countQb->executeQuery()->fetchOne();
+        // fetchOne() returns false when there are no rows, not on errors (which throw exceptions)
         return $result !== false ? (int)$result : 0;
     }
 
