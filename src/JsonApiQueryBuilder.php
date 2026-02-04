@@ -647,12 +647,18 @@ final class JsonApiQueryBuilder
 
                 if ($mapping['type'] & ClassMetadata::TO_ONE) {
                     // ManyToOne or OneToOne
+                    if (empty($mapping['joinColumns'][0])) {
+                        throw new InvalidArgumentException("Missing join column configuration for TO_ONE association $segment in path $path");
+                    }
                     $joinColumn = $mapping['joinColumns'][0]['name'] ?? 'id';
                     $referencedColumn = $mapping['joinColumns'][0]['referencedColumnName'] ?? 'id';
                     $condition = "$currentAlias.$joinColumn = $joinAlias.$referencedColumn";
                 } elseif (isset($mapping['joinTable'])) {
                     // ManyToMany - has a join table
                     $joinTable = $mapping['joinTable']['name'];
+                    if (empty($mapping['joinTable']['joinColumns'][0])) {
+                        throw new InvalidArgumentException("Missing join column configuration for MANY_TO_MANY association $segment in path $path");
+                    }
                     $joinColumn = $mapping['joinTable']['joinColumns'][0]['name'];
                     $condition = "$currentAlias.id = $joinTable.$joinColumn";
                 } else {
@@ -663,7 +669,12 @@ final class JsonApiQueryBuilder
                     }
                     // Get the inverse side mapping to find the join column
                     $inverseMeta = $targetMeta->getAssociationMapping($mappedBy);
-                    $joinColumn = $inverseMeta['joinColumns'][0]['name'] ?? $mappedBy . '_id';
+                    if (empty($inverseMeta['joinColumns'][0])) {
+                        // Fallback to convention-based column name
+                        $joinColumn = $mappedBy . '_id';
+                    } else {
+                        $joinColumn = $inverseMeta['joinColumns'][0]['name'] ?? $mappedBy . '_id';
+                    }
                     $condition = "$currentAlias.id = $joinAlias.$joinColumn";
                 }
 
