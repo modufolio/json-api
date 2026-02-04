@@ -95,10 +95,9 @@ class JsonApiUrlParser
         if (isset($queryParams['having'])) {
             $having['query'] = $queryParams['having']['query'] ?? '';
             $having['bindings'] = $queryParams['having']['bindings'] ?? [];
-            // Basic validation to prevent SQL injection
-            if (!preg_match('/^[a-zA-Z0-9\s,()=<>]*$/', $having['query'])) {
-                $having['query'] = '';
-                $having['bindings'] = [];
+            // Basic validation to prevent SQL injection - only allow safe characters and :param placeholders
+            if ($having['query'] !== '' && !preg_match('/^[a-zA-Z0-9_\s,()=<>:.]+$/', $having['query'])) {
+                throw new InvalidArgumentException('Invalid characters in having clause. Only alphanumeric, spaces, and operators are allowed.');
             }
         }
 

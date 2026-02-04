@@ -55,7 +55,9 @@ class JsonApiPaginator
             ->setFirstResult(0)
             ->setMaxResults(null);
 
-        return (int) $countQb->executeQuery()->fetchOne();
+        $result = $countQb->executeQuery()->fetchOne();
+        // fetchOne() returns false when there are no rows, not on errors (which throw exceptions)
+        return $result !== false ? (int)$result : 0;
     }
 
     /**
