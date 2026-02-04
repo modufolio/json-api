@@ -2,9 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Modufolio\JsonApi;
+namespace Modufolio\JsonApi\Tests\Fixtures\Controller;
 
 use Doctrine\Common\Collections\Collection;
+use Doctrine\ORM\EntityManagerInterface;
 use InvalidArgumentException;
 use Modufolio\JsonApi\Document\ErrorObject;
 use Modufolio\JsonApi\Document\JsonApiDocument;
@@ -14,12 +15,19 @@ use Modufolio\JsonApi\Filter\FilterRegistry;
 use Modufolio\JsonApi\Filter\JsonApiFilterHandler;
 use Modufolio\JsonApi\Helpers\Str;
 use Modufolio\JsonApi\Http\ResponseFactory;
-use Doctrine\ORM\EntityManagerInterface;
+use Modufolio\JsonApi\InputNormalizer;
+use Modufolio\JsonApi\JsonApiConfigurator;
+use Modufolio\JsonApi\JsonApiQueryBuilder;
+use Modufolio\JsonApi\JsonApiQueryParams;
+use Modufolio\JsonApi\JsonApiRequestDeserializer;
+use Modufolio\JsonApi\JsonApiSerializer;
+use Modufolio\JsonApi\JsonApiUrlParser;
 use Negotiation\Exception\Exception;
 use Negotiation\Negotiator;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
+
 
 class JsonApiController
 {

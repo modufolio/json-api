@@ -52,7 +52,7 @@ class JsonApiPaginator
     {
         $countQb = clone $qb;
         $countQb->select('COUNT(DISTINCT t0.id) AS total')
-            ->setFirstResult(null)
+            ->setFirstResult(0)
             ->setMaxResults(null);
 
         return (int) $countQb->executeQuery()->fetchOne();

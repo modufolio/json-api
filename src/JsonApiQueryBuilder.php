@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modufolio\JsonApi;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception;
 use Doctrine\DBAL\Query\Expression\ExpressionBuilder;
 use Doctrine\DBAL\Query\QueryBuilder;
 use Doctrine\ORM\EntityManagerInterface;
@@ -253,19 +254,9 @@ final class JsonApiQueryBuilder
         $this->buildQuery();
         $qb = clone $this->qb;
         $columnName = $column === '*' ? '*' : $this->getColumnName($column);
-        $qb->select("{$method}({$this->alias}.{$columnName}) AS aggregation")
+        $qb->select("$method($this->alias.$columnName) AS aggregation")
             ->setMaxResults(null)
-            ->setFirstResult(null);
-
-        if ($this->debug) {
-            foreach ($this->params as $key => $value) {
-                $qb->setParameter($key, $value);
-            }
-            return [
-                'query' => $qb->getSQL(),
-                'bindings' => $qb->getParameters(),
-            ];
-        }
+            ->setFirstResult(0);
 
         return $qb->executeQuery()->fetchOne() ?? 0;
     }
@@ -282,7 +273,7 @@ final class JsonApiQueryBuilder
             'create' => $this->executeCreate(),
             'update' => $this->executeUpdate(),
             'delete' => $this->executeDelete(),
-            default => throw new InvalidArgumentException("Unknown operation: {$this->operation}"),
+            default => throw new InvalidArgumentException("Unknown operation: $this->operation"),
         };
 
         $this->reset();
@@ -328,7 +319,7 @@ final class JsonApiQueryBuilder
             throw new InvalidArgumentException('ID required for show operation');
         }
         $this->buildQuery();
-        $this->qb->andWhere("{$this->alias}.id = :id")->setParameter('id', $this->id);
+        $this->qb->andWhere("$this->alias.id = :id")->setParameter('id', $this->id);
         if ($this->debug) {
             $qb = clone $this->qb;
             foreach ($this->params as $key => $value) {
@@ -481,7 +472,7 @@ final class JsonApiQueryBuilder
         foreach ($fieldsToSelect as $field) {
             $column = $this->getColumnName($field);
             // Use column name as alias to maintain snake_case in JSON:API output
-            $select[] = "{$this->alias}.{$column} AS {$column}";
+            $select[] = "$this->alias.$column AS $column";
         }
 
         // Also select foreign key columns for relationships (for relationship linkage)
@@ -492,7 +483,7 @@ final class JsonApiQueryBuilder
                 // For ManyToOne and OneToOne (owner side), include the foreign key
                 if (($mapping['type'] & ClassMetadata::TO_ONE) && isset($mapping['joinColumns'])) {
                     $fkColumn = $mapping['joinColumns'][0]['name'] ?? $relationship . '_id';
-                    $select[] = "{$this->alias}.{$fkColumn} AS _rel_{$relationship}_id";
+                    $select[] = "$this->alias.$fkColumn AS _rel_{$relationship}_id";
                 }
             }
         }
@@ -537,7 +528,7 @@ final class JsonApiQueryBuilder
 
     private function applyFilter(string $column, mixed $value, array &$bindings): void
     {
-        $fullColumn = "{$this->alias}.{$column}";
+        $fullColumn = "$this->alias.$column";
 
         if (!is_array($value)) {
             $param = $this->newParamName();
@@ -611,7 +602,7 @@ final class JsonApiQueryBuilder
                 }
             }
             $column = $this->getColumnName($field);
-            $sortParts[] = ["{$this->alias}.{$column}", $direction];
+            $sortParts[] = ["$this->alias.$column", $direction];
         }
 
         return [
@@ -732,7 +723,7 @@ final class JsonApiQueryBuilder
     private function fetchTotalCount(): int
     {
         $countQb = clone $this->qb;
-        $countQb->select("COUNT({$this->alias}.id) AS total");
+        $countQb->select("COUNT($this->alias.id) AS total");
         // Remove pagination from count query
         $countQb->setMaxResults(null);
         $countQb->setFirstResult(0);
@@ -746,6 +737,9 @@ final class JsonApiQueryBuilder
     // Utility Methods
     // ────────────────────────────────────────────────────────────────────────────────
 
+    /**
+     * @throws Exception
+     */
     public function toSql(): string
     {
         $this->buildQuery();
@@ -852,7 +846,7 @@ final class JsonApiQueryBuilder
     {
         $allowedRelationships = $this->getAllowedRelationships();
         if (!in_array($relationship, $allowedRelationships)) {
-            throw new InvalidArgumentException("Invalid relationship: {$relationship}");
+            throw new InvalidArgumentException("Invalid relationship: $relationship");
         }
     }
 
@@ -883,14 +877,14 @@ final class JsonApiQueryBuilder
     public function buildUri(): string
     {
         $resourceKey = $this->config[$this->resourceClass]['resource_key'] ?? strtolower((new \ReflectionClass($this->resourceClass))->getShortName());
-        $baseUri = "/{$resourceKey}";
+        $baseUri = "/$resourceKey";
         if ($this->id && $this->operation === 'show') {
-            $baseUri .= "/{$this->id}";
+            $baseUri .= "/$this->id";
         }
 
         $queryParts = [];
         if ($this->fields) {
-            $queryParts[] = "fields[{$resourceKey}]=" . implode(',', $this->fields);
+            $queryParts[] = "fields[$resourceKey]=" . implode(',', $this->fields);
         }
         if ($this->includes) {
             $queryParts[] = 'include=' . implode(',', $this->includes);
@@ -900,17 +894,17 @@ final class JsonApiQueryBuilder
                 if (is_array($value)) {
                     $operator = key($value);
                     if ($operator === 'null') {
-                        $queryParts[] = "filter[{$field}][null]=";
+                        $queryParts[] = "filter[$field][null]=";
                     } else {
-                        $queryParts[] = "filter[{$field}][{$operator}]=" . urlencode((string)$value[$operator]);
+                        $queryParts[] = "filter[$field][$operator]=" . urlencode((string)$value[$operator]);
                     }
                 } else {
-                    $queryParts[] = "filter[{$field}]=" . urlencode((string)$value);
+                    $queryParts[] = "filter[$field]=" . urlencode((string)$value);
                 }
             }
         }
         if ($this->groupBy) {
-            $queryParts[] = "group={$this->groupBy}";
+            $queryParts[] = "group=$this->groupBy";
         }
         if ($this->having && $this->having['query']) {
             $havingQuery = $this->having['query'];
@@ -918,7 +912,7 @@ final class JsonApiQueryBuilder
                 $havingQuery = str_replace(":$key", urlencode((string)$value), $havingQuery);
             }
             $havingQuery = str_replace(' ', '%20', $havingQuery);
-            $queryParts[] = "having={$havingQuery}";
+            $queryParts[] = "having=$havingQuery";
         }
         if ($this->sort) {
             $queryParts[] = 'sort=' . implode(',', $this->sort);

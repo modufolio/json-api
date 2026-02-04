@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Modufolio\JsonApi\Tests\Integration;
 
 use Doctrine\ORM\EntityManager;
-use Modufolio\JsonApi\JsonApiController;
 use Modufolio\JsonApi\Http\ResponseFactory;
+use Modufolio\JsonApi\Tests\Fixtures\Controller\JsonApiController;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Account;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Contact;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Organization;
