@@ -1,5 +1,7 @@
 # Modufolio JSON:API
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg?style=flat-square)](https://opensource.org/licenses/MIT) [![codecov](https://img.shields.io/codecov/c/github/modufolio/json-api?token=AK3DIZQQJB&style=flat-square)](https://codecov.io/gh/modufolio/json-api)
+
 A PHP implementation of the [JSON:API](https://jsonapi.org/) specification for Doctrine ORM.
 
 ## Features
