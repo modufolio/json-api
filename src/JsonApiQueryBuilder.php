@@ -264,10 +264,14 @@ final class JsonApiQueryBuilder
 
         $this->buildQuery();
         $qb = clone $this->qb;
-        $columnName = $column === '*' ? '*' : $this->getColumnName($column);
-        $qb->select("$method($this->alias.$columnName) AS aggregation")
+        $expr = $column === '*' ? "$method(*)" : "$method($this->alias.{$this->conn->quoteIdentifier($this->getColumnName($column))})";
+        $qb->select("$expr AS aggregation")
             ->setMaxResults(null)
             ->setFirstResult(0);
+
+        foreach ($this->params as $key => $value) {
+            $qb->setParameter($key, $value);
+        }
 
         return $qb->executeQuery()->fetchOne() ?? 0;
     }
@@ -360,8 +364,13 @@ final class JsonApiQueryBuilder
         $allowedFields = $this->getAllowedFields();
         $data = array_intersect_key($this->data, array_flip($allowedFields));
         $mappedData = $this->mapFieldsToColumns($data);
-        $mappedData['created_at'] = date('Y-m-d H:i:s');
-        $mappedData['updated_at'] = date('Y-m-d H:i:s');
+        $columns = array_column($this->meta->fieldMappings, 'columnName');
+        if (in_array('created_at', $columns, true)) {
+            $mappedData['created_at'] = date('Y-m-d H:i:s');
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $mappedData['updated_at'] = date('Y-m-d H:i:s');
+        }
 
         if ($this->debug) {
             $qb = $this->conn->createQueryBuilder()->insert($this->meta->getTableName());
@@ -388,7 +397,10 @@ final class JsonApiQueryBuilder
         $allowedFields = $this->getAllowedFields();
         $data = array_intersect_key($this->data, array_flip($allowedFields));
         $mappedData = $this->mapFieldsToColumns($data);
-        $mappedData['updated_at'] = date('Y-m-d H:i:s');
+        $columns = array_column($this->meta->fieldMappings, 'columnName');
+        if (in_array('updated_at', $columns, true)) {
+            $mappedData['updated_at'] = date('Y-m-d H:i:s');
+        }
 
         if ($this->debug) {
             $qb = $this->conn->createQueryBuilder()->update($this->meta->getTableName());
@@ -482,8 +494,8 @@ final class JsonApiQueryBuilder
 
         foreach ($fieldsToSelect as $field) {
             $column = $this->getColumnName($field);
-            // Use column name as alias to maintain snake_case in JSON:API output
-            $select[] = "$this->alias.$column AS $column";
+            $quotedColumn = $this->conn->quoteIdentifier($column);
+            $select[] = "$this->alias.$quotedColumn AS $column";
         }
 
         // Also select foreign key columns for relationships (for relationship linkage)
@@ -494,7 +506,8 @@ final class JsonApiQueryBuilder
                 // For ManyToOne and OneToOne (owner side), include the foreign key
                 if (($mapping['type'] & ClassMetadata::TO_ONE) && isset($mapping['joinColumns'])) {
                     $fkColumn = $mapping['joinColumns'][0]['name'] ?? $relationship . '_id';
-                    $select[] = "$this->alias.$fkColumn AS _rel_{$relationship}_id";
+                    $quotedFkColumn = $this->conn->quoteIdentifier($fkColumn);
+                    $select[] = "$this->alias.$quotedFkColumn AS _rel_{$relationship}_id";
                 }
             }
         }
@@ -751,7 +764,7 @@ final class JsonApiQueryBuilder
     {
         $countQb = clone $this->qb;
         $countQb->select("COUNT($this->alias.id) AS total");
-        // Remove pagination from count query
+        $countQb->resetGroupBy();
         $countQb->setMaxResults(null);
         $countQb->setFirstResult(0);
         foreach ($this->params as $key => $value) {
@@ -1031,15 +1044,10 @@ final class JsonApiQueryBuilder
      */
     private function sanitizeLikePattern(string $pattern): string
     {
-        // Limit pattern length to prevent DoS
         if (strlen($pattern) > 255) {
             throw new InvalidArgumentException('LIKE pattern too long - maximum 255 characters allowed');
         }
-        
-        // Don't escape % and _ when they're intended as wildcards
-        // Only escape backslashes to prevent escape sequence injection
-        $pattern = str_replace('\\', '\\\\', $pattern);
-        
+
         return $pattern;
     }
 
