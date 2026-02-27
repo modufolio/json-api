@@ -31,36 +31,45 @@ class DateFilterIntegrationTest extends TestCase
             ],
         ];
 
-        // Create test data with specific dates
+        // Insert account via ORM to get a generated ID for the FK
         $account = new Account();
         $account->setName('Test Account');
         $this->em->persist($account);
-
-        // Contact created 10 days ago
-        $contact1 = new Contact();
-        $contact1->setFirstName('John');
-        $contact1->setLastName('Doe');
-        $contact1->setEmail('john.doe@example.com');
-        $contact1->setAccount($account);
-        $this->em->persist($contact1);
-
-        // Contact created 5 days ago  
-        $contact2 = new Contact();
-        $contact2->setFirstName('Jane');
-        $contact2->setLastName('Smith');
-        $contact2->setEmail('jane.smith@test.org');
-        $contact2->setAccount($account);
-        $this->em->persist($contact2);
-
-        // Contact created yesterday
-        $contact3 = new Contact();
-        $contact3->setFirstName('Alice');
-        $contact3->setLastName('Johnson');
-        $contact3->setEmail('alice@company.com');
-        $contact3->setAccount($account);
-        $this->em->persist($contact3);
-
         $this->em->flush();
+
+        $now = date('Y-m-d H:i:s');
+        $conn = $this->em->getConnection();
+
+        $contacts = [
+            [
+                'first_name'  => 'John',
+                'last_name'   => 'Doe',
+                'email'       => 'john.doe@example.com',
+                'account_id'  => $account->getId(),
+                'created_at'  => date('Y-m-d H:i:s', strtotime('-10 days')),
+                'updated_at'  => $now,
+            ],
+            [
+                'first_name'  => 'Jane',
+                'last_name'   => 'Smith',
+                'email'       => 'jane.smith@test.org',
+                'account_id'  => $account->getId(),
+                'created_at'  => date('Y-m-d H:i:s', strtotime('-5 days')),
+                'updated_at'  => $now,
+            ],
+            [
+                'first_name'  => 'Alice',
+                'last_name'   => 'Johnson',
+                'email'       => 'alice@company.com',
+                'account_id'  => $account->getId(),
+                'created_at'  => date('Y-m-d H:i:s', strtotime('-1 day')),
+                'updated_at'  => $now,
+            ],
+        ];
+
+        foreach ($contacts as $contact) {
+            $conn->insert('contacts', $contact);
+        }
     }
 
     protected function tearDown(): void
@@ -82,15 +91,19 @@ class DateFilterIntegrationTest extends TestCase
             $registry
         );
 
-        // Filter for contacts created after a very old date (should get all contacts)
+        // Boundary: after 7 days ago matches the -5d and -1d contacts (2 results)
         $result = $queryBuilder
-            ->filter(['createdAt' => ['after' => '2020-01-01']])
+            ->filter(['createdAt' => ['after' => date('Y-m-d H:i:s', strtotime('-7 days'))]])
             ->operation('index')
             ->get();
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('data', $result);
-        $this->assertCount(3, $result['data']); // All 3 contacts should match
+        $this->assertCount(2, $result['data']);
+        foreach ($result['data'] as $item) {
+            $this->assertArrayHasKey('id', $item);
+            $this->assertArrayHasKey('attributes', $item);
+        }
     }
 
     public function testDateFilterBeforeOperator(): void
@@ -107,15 +120,17 @@ class DateFilterIntegrationTest extends TestCase
             $registry
         );
 
-        // Filter for contacts created before a future date (should get all contacts)
+        // Boundary: before 7 days ago matches only the -10d contact (1 result)
         $result = $queryBuilder
-            ->filter(['createdAt' => ['before' => '2030-01-01']])
+            ->filter(['createdAt' => ['before' => date('Y-m-d H:i:s', strtotime('-7 days'))]])
             ->operation('index')
             ->get();
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('data', $result);
-        $this->assertCount(3, $result['data']); // All contacts should match
+        $this->assertCount(1, $result['data']);
+        $this->assertArrayHasKey('id', $result['data'][0]);
+        $this->assertArrayHasKey('attributes', $result['data'][0]);
     }
 
     public function testDateFilterStrictlyAfterOperator(): void
@@ -132,9 +147,9 @@ class DateFilterIntegrationTest extends TestCase
             $registry
         );
 
-        // Filter for contacts created strictly after current time (should get 0 contacts)
+        // Filter for contacts created strictly after a future timestamp (should get 0 contacts)
         $result = $queryBuilder
-            ->filter(['createdAt' => ['strictly_after' => date('Y-m-d H:i:s')]])
+            ->filter(['createdAt' => ['strictly_after' => (new \DateTime('+1 year'))->format('Y-m-d H:i:s')]])
             ->operation('index')
             ->get();
 
@@ -182,18 +197,22 @@ class DateFilterIntegrationTest extends TestCase
             $registry
         );
 
-        // Filter for contacts created in a wide range (should get all contacts)
+        // Boundary: range between -7 days and now matches the -5d and -1d contacts (2 results)
         $result = $queryBuilder
             ->filter(['createdAt' => [
-                'after' => '2020-01-01',
-                'before' => '2030-01-01'
+                'after'  => date('Y-m-d H:i:s', strtotime('-7 days')),
+                'before' => date('Y-m-d H:i:s'),
             ]])
             ->operation('index')
             ->get();
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('data', $result);
-        $this->assertCount(3, $result['data']);
+        $this->assertCount(2, $result['data']);
+        foreach ($result['data'] as $item) {
+            $this->assertArrayHasKey('id', $item);
+            $this->assertArrayHasKey('attributes', $item);
+        }
     }
 
     public function testDateFilterMultipleFields(): void
@@ -210,11 +229,11 @@ class DateFilterIntegrationTest extends TestCase
             $registry
         );
 
-        // Filter by both createdAt and updatedAt in wide ranges
+        // Both filters use wide ranges: all 3 contacts match
         $result = $queryBuilder
             ->filter([
                 'createdAt' => ['after' => '2020-01-01'],
-                'updatedAt' => ['before' => '2030-01-01']
+                'updatedAt' => ['before' => (new \DateTime('+1 year'))->format('Y-m-d H:i:s')],
             ])
             ->operation('index')
             ->get();
@@ -222,6 +241,10 @@ class DateFilterIntegrationTest extends TestCase
         $this->assertIsArray($result);
         $this->assertArrayHasKey('data', $result);
         $this->assertCount(3, $result['data']);
+        foreach ($result['data'] as $item) {
+            $this->assertArrayHasKey('id', $item);
+            $this->assertArrayHasKey('attributes', $item);
+        }
     }
 
     public function testDateFilterIgnoresUndefinedProperties(): void
@@ -238,18 +261,18 @@ class DateFilterIntegrationTest extends TestCase
             $registry
         );
 
-        // Filter includes undefined updatedAt - should be ignored
+        // updatedAt is not registered in the filter — it must be ignored, only createdAt applies
         $result = $queryBuilder
             ->filter([
-                'createdAt' => ['after' => '2020-01-01'], // Wide range to match all
-                'updatedAt' => ['before' => '2021-01-01']  // Should be ignored
+                'createdAt' => ['after' => '2020-01-01'],
+                'updatedAt' => ['before' => '2021-01-01'], // not registered, must be ignored
             ])
             ->operation('index')
             ->get();
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('data', $result);
-        $this->assertCount(3, $result['data']); // Only createdAt filter applied
+        $this->assertCount(3, $result['data']); // all 3 match the createdAt filter alone
     }
 
     public function testDateFilterIgnoresNonArrayValues(): void
@@ -292,8 +315,9 @@ class DateFilterIntegrationTest extends TestCase
         );
 
         // Filter for future dates - no matches
+        $futureDate = (new \DateTime('+1 year'))->format('Y-m-d');
         $result = $queryBuilder
-            ->filter(['createdAt' => ['after' => '2026-02-10']])
+            ->filter(['createdAt' => ['after' => $futureDate]])
             ->operation('index')
             ->get();
 
@@ -334,7 +358,7 @@ class DateFilterIntegrationTest extends TestCase
     public function testDateFilterDirectQueryBuilderApplication(): void
     {
         $dateFilter = new DateFilter(['createdAt']);
-        
+
         $qb = $this->em->getConnection()->createQueryBuilder();
         $qb->select('*')->from('contacts', 't0');
 
@@ -342,24 +366,30 @@ class DateFilterIntegrationTest extends TestCase
             'createdAt' => ['columnName' => 'created_at']
         ];
 
+        $after  = date('Y-m-d H:i:s', strtotime('-7 days'));
+        $before = date('Y-m-d H:i:s');
+
         $params = [
             'createdAt' => [
-                'after' => '2026-01-29',
-                'before' => '2026-02-01'
+                'after'  => $after,
+                'before' => $before,
             ]
         ];
 
         $bindings = $dateFilter->apply($qb, $params, $fieldMappings);
 
+        // Two operators applied → two bindings
         $this->assertIsArray($bindings);
         $this->assertCount(2, $bindings);
-        
+
+        // SQL must contain aliased column with correct operators
         $sql = $qb->getSQL();
-        $this->assertStringContainsString('created_at >=', $sql);
-        $this->assertStringContainsString('created_at <=', $sql);
-        
-        // Check bindings contain correct values
-        $this->assertContains('2026-01-29', array_values($bindings));
-        $this->assertContains('2026-02-01', array_values($bindings));
+        $this->assertStringContainsString('t0.created_at >=', $sql);
+        $this->assertStringContainsString('t0.created_at <=', $sql);
+
+        // Binding values must match what was passed in
+        $values = array_values($bindings);
+        $this->assertContains($after, $values);
+        $this->assertContains($before, $values);
     }
 }

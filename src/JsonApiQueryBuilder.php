@@ -33,6 +33,12 @@ final class JsonApiQueryBuilder
     private bool $debug = false;
     private bool $withTotalCount = false;
     private string $alias = 't0';
+    
+    // Security: Pattern for validating SQL identifiers
+    private const SQL_IDENTIFIER_PATTERN = '/^[a-zA-Z_][a-zA-Z0-9_]*$/';
+    
+    // Security: Maximum depth for nested filter operations to prevent DoS
+    private const MAX_FILTER_DEPTH = 5;
 
     public function __construct(
         array $config,
@@ -174,6 +180,11 @@ final class JsonApiQueryBuilder
 
     public function having(string $condition, array $bindings = []): self
     {
+        // Security: Validate that condition doesn't contain dangerous SQL
+        if (!$this->isValidHavingCondition($condition)) {
+            throw new InvalidArgumentException('Invalid HAVING condition - only aggregations and simple comparisons allowed');
+        }
+        
         $this->having = ['query' => $condition, 'bindings' => $bindings];
         return $this;
     }
@@ -528,54 +539,70 @@ final class JsonApiQueryBuilder
 
     private function applyFilter(string $column, mixed $value, array &$bindings): void
     {
+        // Security: Validate column name before using it
+        if (!$this->isValidColumnName($column)) {
+            throw new InvalidArgumentException("Invalid column name: $column");
+        }
+        
+        // Security: Prevent deeply nested filter structures (DoS protection)
+        if ($this->getFilterDepth($value) > self::MAX_FILTER_DEPTH) {
+            throw new InvalidArgumentException('Filter structure too deep - maximum depth exceeded');
+        }
+        
         $fullColumn = "$this->alias.$column";
+        $safeExpr = $this->getSafeExpressionBuilder();
 
         if (!is_array($value)) {
-            $param = $this->newParamName();
-            $this->qb->andWhere($this->expr->eq($fullColumn, ':' . $param));
+            $param = $this->newParamName($bindings);
+            $this->qb->andWhere($safeExpr->eq($fullColumn, ':' . $param));
             $bindings[$param] = $value;
             return;
         }
 
         if (array_key_exists('null', $value)) {
-            $this->qb->andWhere($this->expr->isNull($fullColumn));
+            $this->qb->andWhere($safeExpr->isNull($fullColumn));
         } elseif (isset($value['not_null'])) {
-            $this->qb->andWhere($this->expr->isNotNull($fullColumn));
+            $this->qb->andWhere($safeExpr->isNotNull($fullColumn));
         } elseif (isset($value['not']) || isset($value['neq'])) {
-            $param = $this->newParamName();
-            $this->qb->andWhere($this->expr->neq($fullColumn, ':' . $param));
+            $param = $this->newParamName($bindings);
+            $this->qb->andWhere($safeExpr->neq($fullColumn, ':' . $param));
             $bindings[$param] = $value['not'] ?? $value['neq'];
         } elseif (isset($value['gt'])) {
-            $param = $this->newParamName();
-            $this->qb->andWhere($this->expr->gt($fullColumn, ':' . $param));
+            $param = $this->newParamName($bindings);
+            $this->qb->andWhere($safeExpr->gt($fullColumn, ':' . $param));
             $bindings[$param] = $value['gt'];
         } elseif (isset($value['gte'])) {
-            $param = $this->newParamName();
-            $this->qb->andWhere($this->expr->gte($fullColumn, ':' . $param));
+            $param = $this->newParamName($bindings);
+            $this->qb->andWhere($safeExpr->gte($fullColumn, ':' . $param));
             $bindings[$param] = $value['gte'];
         } elseif (isset($value['lt'])) {
-            $param = $this->newParamName();
-            $this->qb->andWhere($this->expr->lt($fullColumn, ':' . $param));
+            $param = $this->newParamName($bindings);
+            $this->qb->andWhere($safeExpr->lt($fullColumn, ':' . $param));
             $bindings[$param] = $value['lt'];
         } elseif (isset($value['lte'])) {
-            $param = $this->newParamName();
-            $this->qb->andWhere($this->expr->lte($fullColumn, ':' . $param));
+            $param = $this->newParamName($bindings);
+            $this->qb->andWhere($safeExpr->lte($fullColumn, ':' . $param));
             $bindings[$param] = $value['lte'];
         } elseif (isset($value['like'])) {
-            $param = $this->newParamName();
-            $this->qb->andWhere($this->expr->like($fullColumn, ':' . $param));
-            $bindings[$param] = $value['like'];
+            $param = $this->newParamName($bindings);
+            $sanitizedValue = $this->sanitizeLikePattern($value['like']);
+            $this->qb->andWhere($safeExpr->like($fullColumn, ':' . $param));
+            $bindings[$param] = $sanitizedValue;
         } elseif (isset($value['in'])) {
             if (empty($value['in'])) {
                 $this->qb->andWhere('1 = 0');
             } else {
+                if (count($value['in']) > 1000) {
+                    throw new InvalidArgumentException('IN clause contains too many values - maximum 1000 allowed');
+                }
+
                 $params = [];
                 foreach ($value['in'] as $val) {
-                    $param = $this->newParamName();
+                    $param = $this->newParamName($bindings);
                     $params[] = ':' . $param;
                     $bindings[$param] = $val;
                 }
-                $this->qb->andWhere($this->expr->in($fullColumn, $params));
+                $this->qb->andWhere($safeExpr->in($fullColumn, $params));
             }
         } else {
             throw new InvalidArgumentException("Unsupported filter operator for column: $column");
@@ -850,9 +877,9 @@ final class JsonApiQueryBuilder
         }
     }
 
-    private function newParamName(): string
+    private function newParamName(array $localBindings = []): string
     {
-        return 'p' . count($this->params);
+        return 'p' . (count($this->params) + count($localBindings));
     }
 
     private function reset(): void
@@ -923,5 +950,130 @@ final class JsonApiQueryBuilder
         }
 
         return $baseUri . ($queryParts ? '?' . implode('&', $queryParts) : '');
+    }
+
+    // ────────────────────────────────────────────────────────────────────────────────
+    // Security Validation Methods
+    // ────────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Validate column/table identifier to prevent SQL injection
+     *
+     * @param string $identifier The column or table name to validate
+     * @return bool True if valid, false otherwise
+     */
+    private function isValidColumnName(string $identifier): bool
+    {
+        // Check against basic SQL identifier pattern
+        if (!preg_match(self::SQL_IDENTIFIER_PATTERN, $identifier)) {
+            return false;
+        }
+
+        // Additional check: reject SQL keywords that could be dangerous (as whole words)
+        $sqlKeywords = [
+            'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER',
+            'TRUNCATE', 'EXEC', 'EXECUTE', 'UNION', 'OR', 'AND', '--', '/*', '*/',
+            'INFORMATION_SCHEMA', 'SYS', 'SYSTEM', 'DUAL'
+        ];
+
+        // Split by dots and check each part as a complete word
+        $parts = explode('.', $identifier);
+        foreach ($parts as $part) {
+            if (in_array(strtoupper(trim($part)), $sqlKeywords, true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Validate HAVING condition for basic security
+     *
+     * @param string $condition The HAVING clause condition
+     * @return bool True if valid, false otherwise
+     */
+    private function isValidHavingCondition(string $condition): bool
+    {
+        // Allow basic aggregation functions, comparisons, and parameter placeholders
+        $allowedPattern = '/^[a-zA-Z0-9_\s\(\)\.,=<>!:\*]+$/';
+        
+        if (!preg_match($allowedPattern, $condition)) {
+            return false;
+        }
+
+        // Check for dangerous SQL patterns
+        $dangerousPatterns = [
+            '/\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|TRUNCATE)\b/i',
+            '/\b(EXEC|EXECUTE|SYSTEM|SHELL)\b/i',
+            '/\b(INFORMATION_SCHEMA|SYS)\b/i',
+            '/-{2,}/', // SQL comments
+            '/\/\*.*?\*\//', // Block comments  
+            '/\bUNION\b/i',
+            '/\bOR\b.*\b1\s*=\s*1\b/i', // Common injection pattern
+            '/;/', // Statement terminators
+        ];
+
+        foreach ($dangerousPatterns as $pattern) {
+            if (preg_match($pattern, $condition)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Sanitize LIKE patterns to prevent certain injection attempts
+     *
+     * @param string $pattern The LIKE pattern to sanitize
+     * @return string The sanitized pattern
+     */
+    private function sanitizeLikePattern(string $pattern): string
+    {
+        // Limit pattern length to prevent DoS
+        if (strlen($pattern) > 255) {
+            throw new InvalidArgumentException('LIKE pattern too long - maximum 255 characters allowed');
+        }
+        
+        // Don't escape % and _ when they're intended as wildcards
+        // Only escape backslashes to prevent escape sequence injection
+        $pattern = str_replace('\\', '\\\\', $pattern);
+        
+        return $pattern;
+    }
+
+    /**
+     * Calculate the depth of nested filter structures
+     *
+     * @param mixed $value The filter value to analyze
+     * @param int $currentDepth Current recursion depth
+     * @return int Maximum depth found
+     */
+    private function getFilterDepth(mixed $value, int $currentDepth = 0): int
+    {
+        if (!is_array($value)) {
+            return $currentDepth;
+        }
+
+        $maxDepth = $currentDepth;
+        foreach ($value as $item) {
+            if (is_array($item)) {
+                $depth = $this->getFilterDepth($item, $currentDepth + 1);
+                $maxDepth = max($maxDepth, $depth);
+            }
+        }
+
+        return $maxDepth;
+    }
+
+    /**
+     * Create a safer expression builder wrapper with additional validation
+     *
+     * @return SafeExpressionBuilder
+     */
+    private function getSafeExpressionBuilder(): SafeExpressionBuilder
+    {
+        return new SafeExpressionBuilder($this->expr);
     }
 }

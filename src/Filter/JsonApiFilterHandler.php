@@ -80,6 +80,13 @@ class JsonApiFilterHandler implements FilterInterface
                     "Invalid column mapping for field '{$field}'. Expected string, got " . gettype($column)
                 );
             }
+            
+            // Security: Validate column name to prevent SQL injection
+            if (!$this->validateColumnName($column)) {
+                throw new InvalidArgumentException(
+                    "Invalid or potentially dangerous column name: {$column}"
+                );
+            }
 
             if (is_array($value)) {
                 $this->applyComplexFilter($qb, $alias, $column, $value, $i, $bindings);
@@ -232,5 +239,28 @@ class JsonApiFilterHandler implements FilterInterface
         }
 
         return in_array($field, $this->allowedFields, true);
+    }
+
+    /**
+     * Validate column name for security
+     *
+     * @param string $column
+     * @return bool
+     */
+    private function validateColumnName(string $column): bool
+    {
+        // Check for basic SQL identifier pattern
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $column)) {
+            return false;
+        }
+
+        // Reject dangerous SQL keywords
+        $dangerousKeywords = [
+            'DROP', 'DELETE', 'INSERT', 'UPDATE', 'ALTER', 'CREATE', 'TRUNCATE',
+            'EXEC', 'EXECUTE', 'SYSTEM', 'SHELL', 'INFORMATION_SCHEMA', 'SYS',
+            'UNION', 'SELECT'
+        ];
+
+        return !in_array(strtoupper($column), $dangerousKeywords);
     }
 }

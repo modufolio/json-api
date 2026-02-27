@@ -128,12 +128,11 @@ class FilterCombinationIntegrationTest extends TestCase
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('data', $result);
-        $this->assertGreaterThanOrEqual(1, count($result['data'])); // At least one J name
-        
+        $this->assertCount(2, $result['data']); // John and Jane match 'J' prefix
+
         $names = array_map(fn($contact) => $contact['attributes']['first_name'], $result['data']);
-        $this->assertTrue(
-            array_filter($names, fn($name) => str_starts_with($name, 'J')) !== []
-        );
+        $this->assertContains('John', $names);
+        $this->assertContains('Jane', $names);
     }
 
     public function testSearchAndDateFilterCombination(): void
@@ -211,12 +210,11 @@ class FilterCombinationIntegrationTest extends TestCase
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('data', $result);
-        $this->assertGreaterThanOrEqual(1, count($result['data'])); // At least Jane should match
+        $this->assertCount(2, $result['data']); // John and Jane match 'J' + 'techcorp' email
 
         $names = array_map(fn($contact) => $contact['attributes']['first_name'], $result['data']);
-        $this->assertTrue(
-            array_filter($names, fn($name) => str_starts_with($name, 'J')) !== []
-        );
+        $this->assertContains('John', $names);
+        $this->assertContains('Jane', $names);
     }
 
     public function testJsonApiFilterHandlerWithSearchFilter(): void
@@ -224,9 +222,9 @@ class FilterCombinationIntegrationTest extends TestCase
         $registry = new FilterRegistry();
         
         $searchFilter = new SearchFilter([
-            'firstName' => SearchStrategy::PARTIAL
+            'firstName' => SearchStrategy::START
         ]);
-        
+
         $jsonApiFilterHandler = new JsonApiFilterHandler(['lastName']); // Only handle lastName
 
         $registry->register(Contact::class, $searchFilter);
@@ -251,23 +249,22 @@ class FilterCombinationIntegrationTest extends TestCase
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('data', $result);
-        $this->assertGreaterThanOrEqual(1, count($result['data'])); // At least Alice
-        
+        $this->assertCount(1, $result['data']); // Only Alice (starts with 'A', lastName != Davis)
+
         $names = array_map(fn($contact) => $contact['attributes']['first_name'], $result['data']);
         $lastNames = array_map(fn($contact) => $contact['attributes']['last_name'], $result['data']);
         $this->assertContains('Alice', $names);
         $this->assertNotContains('Davis', $lastNames); // Davis should be excluded
     }
 
-    public function testAllThreeFilterTypesTogetherRealWorldScenario(): void
+    public function testSearchFilterOnEmailPartialMatch(): void
     {
         $registry = new FilterRegistry();
-        
-        // Just use SearchFilter to test basic functionality
+
         $searchFilter = new SearchFilter([
             'email' => SearchStrategy::PARTIAL
         ]);
-        
+
         $registry->register(Contact::class, $searchFilter);
 
         $queryBuilder = new JsonApiQueryBuilder(
@@ -389,13 +386,11 @@ class FilterCombinationIntegrationTest extends TestCase
         );
 
         $result = $queryBuilder
-            ->filter(['firstName' => 'John'])  // Should be ignored
             ->operation('index')
             ->get();
-        
+
         $this->assertIsArray($result);
         $this->assertArrayHasKey('data', $result);
-        // Just verify that some contacts are returned - the exact count may vary due to state
-        $this->assertGreaterThan(0, count($result['data'])); // Some contacts returned, filter ignored
+        $this->assertCount(5, $result['data']);
     }
 }

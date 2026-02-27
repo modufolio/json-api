@@ -582,11 +582,15 @@ class JsonApiFilterHandlerIntegrationTest extends TestCase
             $registry
         );
 
-        // Test multiple filters combined
+        $allResult = $queryBuilder->operation('index')->get();
+        $allIds = array_map(fn($c) => (int)$c['id'], $allResult['data']);
+        sort($allIds);
+        $secondId = $allIds[1]; // skip the first contact (John)
+
         $result = $queryBuilder
             ->filter([
-                'id' => ['gte' => 2],
-                'firstName' => ['neq' => 'Bob']
+                'id'        => ['gte' => $secondId],
+                'firstName' => ['neq' => 'Bob'],
             ])
             ->operation('index')
             ->get();

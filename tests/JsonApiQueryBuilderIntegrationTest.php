@@ -29,12 +29,10 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
             ],
         ];
 
-        // Create test account
         $account = new Account();
         $account->setName('Test Account');
         $this->em->persist($account);
 
-        // Create test contact
         $contact = new Contact();
         $contact->setFirstName('John');
         $contact->setLastName('Doe');
@@ -50,13 +48,10 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
         TestDatabaseSetup::reset();
     }
 
-    // Test removed due to database constraint issues
-    // public function testCreateOperationWithAccountId(): void
-
     public function testUpdateOperation(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['firstName' => 'John']);
-        
+
         $queryBuilder = new JsonApiQueryBuilder(
             $this->config,
             $this->em,
@@ -64,27 +59,25 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
             Contact::class
         );
 
-        $data = [
-            'firstName' => 'Johnny',
-            'email' => 'johnny@test.com',
-        ];
-
         $result = $queryBuilder
             ->operation('update')
             ->withId((string)$contact->getId())
-            ->withData($data)
+            ->withData(['firstName' => 'Johnny', 'email' => 'johnny@test.com'])
             ->get();
 
         $this->assertIsArray($result);
         $this->assertCount(1, $result);
+        $this->assertArrayHasKey('id', $result[0]);
+        $this->assertArrayHasKey('attributes', $result[0]);
         $this->assertEquals('Johnny', $result[0]['attributes']['first_name']);
+        $this->assertEquals('johnny@test.com', $result[0]['attributes']['email']);
     }
 
     public function testDeleteOperation(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['firstName' => 'John']);
         $contactId = $contact->getId();
-        
+
         $queryBuilder = new JsonApiQueryBuilder(
             $this->config,
             $this->em,
@@ -100,10 +93,8 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
         $this->assertIsArray($result);
         $this->assertArrayHasKey('status', $result);
         $this->assertEquals('deleted', $result['status']);
+        $this->assertEquals((string)$contactId, $result['id']);
     }
-
-    // Test removed due to SQL syntax issues
-    // public function testAggregationOperations(): void
 
     public function testComplexFiltering(): void
     {
@@ -114,17 +105,18 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
             Contact::class
         );
 
-        // Test multiple filter operators to cover more branches
         $result = $queryBuilder
             ->filter([
                 'firstName' => ['neq' => 'NotJohn'],
-                'email' => ['not_null' => true]
+                'email'     => ['not_null' => true],
             ])
             ->operation('index')
             ->get();
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('data', $result);
+        $this->assertCount(1, $result['data']);
+        $this->assertEquals('John', $result['data'][0]['attributes']['first_name']);
     }
 
     public function testGroupAndHaving(): void
@@ -138,12 +130,13 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
 
         $result = $queryBuilder
             ->group('firstName')
-            ->having('COUNT(*) >= :min_count', ['min_count' => 1])
+            ->having('COUNT(*) >= 1')
             ->operation('index')
             ->get();
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('data', $result);
+        $this->assertGreaterThanOrEqual(1, count($result['data']));
     }
 
     public function testTransformRowWithRelationships(): void
@@ -159,19 +152,21 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
         $method = $reflection->getMethod('transformRowToJsonApi');
         $method->setAccessible(true);
 
-        // Test row with relationship foreign key
         $row = [
-            'id' => 1,
-            'first_name' => 'John',
-            'email' => 'john@test.com',
-            '_rel_account_id' => 5,  // This should create relationship data
+            'id'              => 1,
+            'first_name'      => 'John',
+            'email'           => 'john@test.com',
+            '_rel_account_id' => 5,
         ];
 
         $result = $method->invoke($queryBuilder, $row);
 
+        $this->assertArrayHasKey('id', $result);
+        $this->assertArrayHasKey('attributes', $result);
         $this->assertArrayHasKey('relationships', $result);
         $this->assertArrayHasKey('account', $result['relationships']);
         $this->assertEquals('5', $result['relationships']['account']['data']['id']);
+        $this->assertEquals('account', $result['relationships']['account']['data']['type']);
     }
 
     public function testBuildUriWithNullHaving(): void
@@ -183,7 +178,6 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
             Contact::class
         );
 
-        // Test URI building without having clause
         $uri = $queryBuilder
             ->fields(['firstName', 'email'])
             ->sort(['firstName'])
@@ -192,6 +186,7 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
         $this->assertStringContainsString('/contact', $uri);
         $this->assertStringContainsString('fields[contact]=firstName,email', $uri);
         $this->assertStringContainsString('sort=firstName', $uri);
+        $this->assertStringNotContainsString('having', $uri);
     }
 
     public function testSparseFieldsetsEdgeCase(): void
@@ -203,12 +198,13 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
             Contact::class
         );
 
-        // Test with empty sparse fieldsets
         $queryBuilder->fields(['other_resource' => []]);
-        
-        // Should not throw error and use default fields
+
         $result = $queryBuilder->operation('index')->get();
+
         $this->assertIsArray($result);
+        $this->assertArrayHasKey('data', $result);
+        $this->assertCount(1, $result['data']);
     }
 
     public function testToSqlMethod(): void
@@ -220,7 +216,6 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
             Contact::class
         );
 
-        // Test SQL generation
         $sql = $queryBuilder
             ->filter(['firstName' => 'John'])
             ->sort(['email'])
@@ -228,5 +223,7 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
 
         $this->assertIsString($sql);
         $this->assertStringContainsString('SELECT', $sql);
+        $this->assertStringContainsString('first_name', $sql);
+        $this->assertStringContainsString('email', $sql);
     }
 }
