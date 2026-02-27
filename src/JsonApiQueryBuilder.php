@@ -269,7 +269,11 @@ final class JsonApiQueryBuilder
             ->setMaxResults(null)
             ->setFirstResult(0);
 
-        return $qb->executeQuery()->fetchOne() ?? 0;
+        $result = $qb->executeQuery()->fetchOne();
+        // Return float to preserve precision for aggregates like AVG
+        // fetchOne() returns false when there are no rows (valid for empty result sets)
+        // Database errors throw exceptions, so 0 is the correct default for no results
+        return $result !== false ? (float)$result : 0;
     }
 
     // ────────────────────────────────────────────────────────────────────────────────
@@ -670,17 +674,27 @@ final class JsonApiQueryBuilder
                 if (!$field) {
                     throw new InvalidArgumentException("No fields defined for target entity $targetClass in path $path");
                 }
-                $column = $targetMeta->fieldMappings[$field]['columnName'] ?? $field;
+                // Get column name, checking if field exists in mappings first
+                $column = $field;
+                if (isset($targetMeta->fieldMappings[$field])) {
+                    $column = $targetMeta->fieldMappings[$field]['columnName'] ?? $field;
+                }
 
                 if ($mapping['type'] & ClassMetadata::TO_ONE) {
                     // ManyToOne or OneToOne
-                    $joinColumn = $mapping['joinColumns'][0]['name'] ?? 'id';
-                    $referencedColumn = $mapping['joinColumns'][0]['referencedColumnName'] ?? 'id';
+                    if (empty($mapping['joinColumns'][0])) {
+                        throw new InvalidArgumentException("Missing join column configuration for TO_ONE association $segment in path $path");
+                    }
+                    $joinColumn = $mapping['joinColumns'][0]['name'] ?? throw new InvalidArgumentException("Missing 'name' in join column for $segment");
+                    $referencedColumn = $mapping['joinColumns'][0]['referencedColumnName'] ?? throw new InvalidArgumentException("Missing 'referencedColumnName' in join column for $segment");
                     $condition = "$currentAlias.$joinColumn = $joinAlias.$referencedColumn";
                 } elseif (isset($mapping['joinTable'])) {
                     // ManyToMany - has a join table
                     $joinTable = $mapping['joinTable']['name'];
-                    $joinColumn = $mapping['joinTable']['joinColumns'][0]['name'];
+                    if (empty($mapping['joinTable']['joinColumns'][0])) {
+                        throw new InvalidArgumentException("Missing join column configuration for MANY_TO_MANY association $segment in path $path");
+                    }
+                    $joinColumn = $mapping['joinTable']['joinColumns'][0]['name'] ?? throw new InvalidArgumentException("Missing 'name' in join column for $segment");
                     $condition = "$currentAlias.id = $joinTable.$joinColumn";
                 } else {
                     // OneToMany - no join table, use foreign key on target table
@@ -690,7 +704,12 @@ final class JsonApiQueryBuilder
                     }
                     // Get the inverse side mapping to find the join column
                     $inverseMeta = $targetMeta->getAssociationMapping($mappedBy);
-                    $joinColumn = $inverseMeta['joinColumns'][0]['name'] ?? $mappedBy . '_id';
+                    if (empty($inverseMeta['joinColumns'][0])) {
+                        // Fallback to convention-based column name
+                        $joinColumn = $mappedBy . '_id';
+                    } else {
+                        $joinColumn = $inverseMeta['joinColumns'][0]['name'];
+                    }
                     $condition = "$currentAlias.id = $joinAlias.$joinColumn";
                 }
 
@@ -757,7 +776,9 @@ final class JsonApiQueryBuilder
         foreach ($this->params as $key => $value) {
             $countQb->setParameter($key, $value);
         }
-        return (int)$countQb->executeQuery()->fetchOne();
+        $result = $countQb->executeQuery()->fetchOne();
+        // fetchOne() returns false when there are no rows, not on errors (which throw exceptions)
+        return $result !== false ? (int)$result : 0;
     }
 
     // ────────────────────────────────────────────────────────────────────────────────

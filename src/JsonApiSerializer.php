@@ -13,6 +13,11 @@ namespace Modufolio\JsonApi;
 class JsonApiSerializer
 {
     /**
+     * Maximum allowed page size to prevent performance issues
+     */
+    public const MAX_PAGE_SIZE = 100;
+
+    /**
      * Serialize a single resource to JSON:API format
      *
      * @param array<string, mixed> $data Resource data
@@ -160,7 +165,7 @@ class JsonApiSerializer
 
         // Ensure sensible limits
         $pageNumber = max(1, $pageNumber);
-        $pageSize = max(1, min(100, $pageSize)); // Cap at 100 items per page
+        $pageSize = max(1, min(self::MAX_PAGE_SIZE, $pageSize)); // Cap at max items per page
 
         return [
             'number' => $pageNumber,
