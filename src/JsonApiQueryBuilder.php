@@ -317,25 +317,28 @@ final class JsonApiQueryBuilder
         // Transform raw database rows into JSON:API format
         $data = array_map(fn($row) => $this->transformRowToJsonApi($row), $rawData);
 
-        // Resolve OneToMany includes via separate queries to avoid row multiplication.
-        $parentIds = array_column($rawData, 'id');
+        // Resolve OneToMany linkage (and included data for requested rels) via separate IN-queries.
+        $parentIds  = array_column($rawData, 'id');
         $toManyData = $this->fetchToManyIncludes($parentIds);
+        $linkageMap  = $toManyData['linkage'];   // all OneToMany → always add to relationships
+        $includedRaw = $toManyData['included'];  // only ?include= rels → add to compound document
         $included = [];
-        if (!empty($toManyData)) {
+        if (!empty($linkageMap)) {
             $includedMap = [];
             foreach ($data as &$item) {
                 $itemId = $item['id'];
-                foreach ($toManyData as $relName => $byParent) {
-                    $items = $byParent[$itemId] ?? [];
-                    $item['relationships'][$relName] = [
-                        'data' => array_map(fn($i) => ['type' => $i['type'], 'id' => $i['id']], $items),
-                    ];
+                foreach ($linkageMap as $relName => $byParent) {
+                    $item['relationships'][$relName] = ['data' => $byParent[$itemId] ?? []];
+                }
+            }
+            unset($item);
+            foreach ($includedRaw as $byParent) {
+                foreach ($byParent as $items) {
                     foreach ($items as $i) {
                         $includedMap[$i['type'] . ':' . $i['id']] = $i;
                     }
                 }
             }
-            unset($item);
             $included = array_values($includedMap);
         }
 
@@ -380,17 +383,22 @@ final class JsonApiQueryBuilder
 
         $item = $this->transformRowToJsonApi($rawData);
 
-        // Resolve OneToMany includes via separate queries to avoid row multiplication.
-        $toManyData = $this->fetchToManyIncludes([$this->id]);
+        // Resolve OneToMany linkage (and included data for requested rels) via separate IN-queries.
+        $toManyData  = $this->fetchToManyIncludes([$this->id]);
+        $linkageMap  = $toManyData['linkage'];   // all OneToMany → always add to relationships
+        $includedRaw = $toManyData['included'];  // only ?include= rels → add to compound document
+
         $included = [];
-        foreach ($toManyData as $relName => $byParent) {
-            $items = $byParent[$this->id] ?? [];
-            $item['relationships'][$relName] = [
-                'data' => array_map(fn($i) => ['type' => $i['type'], 'id' => $i['id']], $items),
-            ];
-            array_push($included, ...$items);
+        foreach ($linkageMap as $relName => $byParent) {
+            $item['relationships'][$relName] = ['data' => $byParent[$this->id] ?? []];
+        }
+        foreach ($includedRaw as $byParent) {
+            foreach ($byParent as $items) {
+                array_push($included, ...$items);
+            }
         }
 
+        // Return using both numeric key (backward compat: $result[0]) and 'included' key.
         return [0 => $item, 'included' => $included];
     }
 
@@ -830,19 +838,35 @@ final class JsonApiQueryBuilder
 
     /**
      * Fetch OneToMany related resources via separate IN-queries, grouped by parent ID.
-     * Returns: [ relationshipName => [ parentId => [ items... ] ] ]
+     *
+     * Always fetches ALL configured OneToMany relationships so that relationship linkage
+     * (type+id pairs) appears in every response regardless of ?include.
+     *
+     * Returns:
+     *   [
+     *     'linkage'  => [ relName => [ parentId => [ ['type'=>..,'id'=>..], … ] ] ],
+     *     'included' => [ relName => [ parentId => [ fullItem, … ] ] ],  // only for ?include=rel
+     *   ]
      */
     private function fetchToManyIncludes(array $parentIds): array
     {
-        if (empty($parentIds) || empty($this->includes)) {
-            return [];
+        if (empty($parentIds)) {
+            return ['linkage' => [], 'included' => []];
         }
 
-        $result = [];
-
+        // Relationships explicitly requested via ?include=
+        $requestedIncludes = [];
         foreach ($this->includes as $path) {
-            $segment = explode('.', $path)[0];
+            $requestedIncludes[explode('.', $path)[0]] = true;
+        }
 
+        // All OneToMany associations configured for this resource
+        $allRelationships = $this->getAllowedRelationships();
+
+        $linkage  = [];
+        $included = [];
+
+        foreach ($allRelationships as $segment) {
             if (!$this->meta->hasAssociation($segment)) {
                 continue;
             }
@@ -868,24 +892,31 @@ final class JsonApiQueryBuilder
             $inverseMapping = $targetMeta->getAssociationMapping($mappedBy);
             $fkColumn       = $inverseMapping['joinColumns'][0]['name'] ?? $mappedBy . '_id';
 
-            // Build field SELECT list
-            $allowedFields = $this->config[$targetClass]['fields'] ?? $targetMeta->getFieldNames();
-            $selectParts   = [];
-            foreach ($allowedFields as $field) {
-                $col           = $targetMeta->fieldMappings[$field]['columnName'] ?? $field;
-                $selectParts[] = $this->conn->quoteIdentifier($col);
-            }
+            // Always need id; only fetch full fields when this rel is in ?include
+            $isIncluded = isset($requestedIncludes[$segment]);
 
-            // Add FK columns for TO_ONE relationships on the target entity
-            $targetRels = $this->config[$targetClass]['relationships'] ?? array_keys($targetMeta->getAssociationNames());
-            foreach ($targetRels as $rel) {
-                if (!$targetMeta->hasAssociation($rel)) {
-                    continue;
+            $selectParts = [$this->conn->quoteIdentifier('id')];
+
+            if ($isIncluded) {
+                $allowedFields = $this->config[$targetClass]['fields'] ?? $targetMeta->getFieldNames();
+                foreach ($allowedFields as $field) {
+                    $col = $targetMeta->fieldMappings[$field]['columnName'] ?? $field;
+                    if ($col !== 'id') {
+                        $selectParts[] = $this->conn->quoteIdentifier($col);
+                    }
                 }
-                $relMapping = $targetMeta->getAssociationMapping($rel);
-                if (($relMapping['type'] & ClassMetadata::TO_ONE) && isset($relMapping['joinColumns'])) {
-                    $relFk         = $relMapping['joinColumns'][0]['name'] ?? $rel . '_id';
-                    $selectParts[] = $this->conn->quoteIdentifier($relFk) . ' AS _rel_' . $rel . '_id';
+
+                // Add FK columns for TO_ONE relationships on the target entity
+                $targetRels = $this->config[$targetClass]['relationships'] ?? array_keys($targetMeta->getAssociationNames());
+                foreach ($targetRels as $rel) {
+                    if (!$targetMeta->hasAssociation($rel)) {
+                        continue;
+                    }
+                    $relMapping = $targetMeta->getAssociationMapping($rel);
+                    if (($relMapping['type'] & ClassMetadata::TO_ONE) && isset($relMapping['joinColumns'])) {
+                        $relFk         = $relMapping['joinColumns'][0]['name'] ?? $rel . '_id';
+                        $selectParts[] = $this->conn->quoteIdentifier($relFk) . ' AS _rel_' . $rel . '_id';
+                    }
                 }
             }
 
@@ -912,11 +943,15 @@ final class JsonApiQueryBuilder
             foreach ($rows as $row) {
                 $parentId = $row['__parent_id'];
                 unset($row['__parent_id']);
-                $result[$segment][$parentId][] = $this->transformIncludedRowToJsonApi($row, $targetMeta, $targetKey);
+                $identifier = ['type' => $targetKey, 'id' => (string) $row['id']];
+                $linkage[$segment][$parentId][] = $identifier;
+                if ($isIncluded) {
+                    $included[$segment][$parentId][] = $this->transformIncludedRowToJsonApi($row, $targetMeta, $targetKey);
+                }
             }
         }
 
-        return $result;
+        return ['linkage' => $linkage, 'included' => $included];
     }
 
     /**
