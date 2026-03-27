@@ -317,14 +317,37 @@ final class JsonApiQueryBuilder
         // Transform raw database rows into JSON:API format
         $data = array_map(fn($row) => $this->transformRowToJsonApi($row), $rawData);
 
+        // Resolve OneToMany includes via separate queries to avoid row multiplication.
+        $parentIds = array_column($rawData, 'id');
+        $toManyData = $this->fetchToManyIncludes($parentIds);
+        $included = [];
+        if (!empty($toManyData)) {
+            $includedMap = [];
+            foreach ($data as &$item) {
+                $itemId = $item['id'];
+                foreach ($toManyData as $relName => $byParent) {
+                    $items = $byParent[$itemId] ?? [];
+                    $item['relationships'][$relName] = [
+                        'data' => array_map(fn($i) => ['type' => $i['type'], 'id' => $i['id']], $items),
+                    ];
+                    foreach ($items as $i) {
+                        $includedMap[$i['type'] . ':' . $i['id']] = $i;
+                    }
+                }
+            }
+            unset($item);
+            $included = array_values($includedMap);
+        }
+
         if (!$this->withTotalCount) {
-            return ['data' => $data];
+            return ['data' => $data, 'included' => $included];
         }
 
         $count = $this->fetchTotalCount();
         return [
             'total' => $count,
             'data' => $data,
+            'included' => $included,
         ];
     }
 
@@ -355,8 +378,20 @@ final class JsonApiQueryBuilder
             return [];
         }
 
-        // Transform raw database row into JSON:API format
-        return [$this->transformRowToJsonApi($rawData)];
+        $item = $this->transformRowToJsonApi($rawData);
+
+        // Resolve OneToMany includes via separate queries to avoid row multiplication.
+        $toManyData = $this->fetchToManyIncludes([$this->id]);
+        $included = [];
+        foreach ($toManyData as $relName => $byParent) {
+            $items = $byParent[$this->id] ?? [];
+            $item['relationships'][$relName] = [
+                'data' => array_map(fn($i) => ['type' => $i['type'], 'id' => $i['id']], $items),
+            ];
+            array_push($included, ...$items);
+        }
+
+        return [0 => $item, 'included' => $included];
     }
 
     private function executeCreate(): array
@@ -668,13 +703,20 @@ final class JsonApiQueryBuilder
                     throw new InvalidArgumentException("Unknown include: $segment in path $path");
                 }
 
+                $mapping = $currentMeta->getAssociationMapping($segment);
+
+                // OneToMany — skip LEFT JOIN to prevent row multiplication.
+                // These relationships are resolved via fetchToManyIncludes() after the main query.
+                if (!($mapping['type'] & ClassMetadata::TO_ONE) && !isset($mapping['joinTable'])) {
+                    break;
+                }
+
                 while (in_array('t' . $aliasCounter, $usedAliases)) {
                     $aliasCounter++;
                 }
                 $joinAlias = 't' . $aliasCounter;
                 $usedAliases[] = $joinAlias;
 
-                $mapping = $currentMeta->getAssociationMapping($segment);
                 $targetClass = $mapping['targetEntity'];
                 $targetMeta = $this->em->getClassMetadata($targetClass);
                 $targetTable = $targetMeta->getTableName();
@@ -690,21 +732,11 @@ final class JsonApiQueryBuilder
                     $joinColumn = $mapping['joinColumns'][0]['name'] ?? 'id';
                     $referencedColumn = $mapping['joinColumns'][0]['referencedColumnName'] ?? 'id';
                     $condition = "$currentAlias.$joinColumn = $joinAlias.$referencedColumn";
-                } elseif (isset($mapping['joinTable'])) {
+                } else {
                     // ManyToMany - has a join table
                     $joinTable = $mapping['joinTable']['name'];
                     $joinColumn = $mapping['joinTable']['joinColumns'][0]['name'];
                     $condition = "$currentAlias.id = $joinTable.$joinColumn";
-                } else {
-                    // OneToMany - no join table, use foreign key on target table
-                    $mappedBy = $mapping['mappedBy'] ?? null;
-                    if (!$mappedBy) {
-                        throw new InvalidArgumentException("OneToMany association must have mappedBy property for $segment in path $path");
-                    }
-                    // Get the inverse side mapping to find the join column
-                    $inverseMeta = $targetMeta->getAssociationMapping($mappedBy);
-                    $joinColumn = $inverseMeta['joinColumns'][0]['name'] ?? $mappedBy . '_id';
-                    $condition = "$currentAlias.id = $joinAlias.$joinColumn";
                 }
 
                 $joins[] = [
@@ -794,6 +826,144 @@ final class JsonApiQueryBuilder
     public function expr(): ExpressionBuilder
     {
         return $this->expr;
+    }
+
+    /**
+     * Fetch OneToMany related resources via separate IN-queries, grouped by parent ID.
+     * Returns: [ relationshipName => [ parentId => [ items... ] ] ]
+     */
+    private function fetchToManyIncludes(array $parentIds): array
+    {
+        if (empty($parentIds) || empty($this->includes)) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($this->includes as $path) {
+            $segment = explode('.', $path)[0];
+
+            if (!$this->meta->hasAssociation($segment)) {
+                continue;
+            }
+
+            $mapping = $this->meta->getAssociationMapping($segment);
+
+            // Only handle OneToMany here (TO_ONE via JOIN, ManyToMany via join table)
+            if (($mapping['type'] & ClassMetadata::TO_ONE) || isset($mapping['joinTable'])) {
+                continue;
+            }
+
+            $mappedBy = $mapping['mappedBy'] ?? null;
+            if (!$mappedBy) {
+                continue;
+            }
+
+            $targetClass  = $mapping['targetEntity'];
+            $targetMeta   = $this->em->getClassMetadata($targetClass);
+            $targetTable  = $targetMeta->getTableName();
+            $targetKey    = $this->config[$targetClass]['resource_key']
+                ?? strtolower(substr($targetClass, strrpos($targetClass, '\\') + 1));
+
+            $inverseMapping = $targetMeta->getAssociationMapping($mappedBy);
+            $fkColumn       = $inverseMapping['joinColumns'][0]['name'] ?? $mappedBy . '_id';
+
+            // Build field SELECT list
+            $allowedFields = $this->config[$targetClass]['fields'] ?? $targetMeta->getFieldNames();
+            $selectParts   = [];
+            foreach ($allowedFields as $field) {
+                $col           = $targetMeta->fieldMappings[$field]['columnName'] ?? $field;
+                $selectParts[] = $this->conn->quoteIdentifier($col);
+            }
+
+            // Add FK columns for TO_ONE relationships on the target entity
+            $targetRels = $this->config[$targetClass]['relationships'] ?? array_keys($targetMeta->getAssociationNames());
+            foreach ($targetRels as $rel) {
+                if (!$targetMeta->hasAssociation($rel)) {
+                    continue;
+                }
+                $relMapping = $targetMeta->getAssociationMapping($rel);
+                if (($relMapping['type'] & ClassMetadata::TO_ONE) && isset($relMapping['joinColumns'])) {
+                    $relFk         = $relMapping['joinColumns'][0]['name'] ?? $rel . '_id';
+                    $selectParts[] = $this->conn->quoteIdentifier($relFk) . ' AS _rel_' . $rel . '_id';
+                }
+            }
+
+            // Build IN clause with named parameters
+            $placeholders = [];
+            $bindings     = [];
+            foreach (array_values($parentIds) as $i => $pid) {
+                $pname          = 'tm_' . $i;
+                $placeholders[] = ':' . $pname;
+                $bindings[$pname] = $pid;
+            }
+
+            $quotedFk = $this->conn->quoteIdentifier($fkColumn);
+            $sql = sprintf(
+                'SELECT %s, %s AS __parent_id FROM %s WHERE %s IN (%s)',
+                implode(', ', $selectParts),
+                $quotedFk,
+                $targetTable,
+                $quotedFk,
+                implode(', ', $placeholders)
+            );
+
+            $rows = $this->conn->executeQuery($sql, $bindings)->fetchAllAssociative();
+            foreach ($rows as $row) {
+                $parentId = $row['__parent_id'];
+                unset($row['__parent_id']);
+                $result[$segment][$parentId][] = $this->transformIncludedRowToJsonApi($row, $targetMeta, $targetKey);
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Like transformRowToJsonApi() but for a related (included) entity,
+     * using the target entity's ClassMetadata for relationship resolution.
+     * Returns an item with 'type' included so the caller can build JSON:API identifiers.
+     */
+    private function transformIncludedRowToJsonApi(array $row, ClassMetadata $targetMeta, string $resourceKey): array
+    {
+        $id            = null;
+        $attributes    = [];
+        $relationships = [];
+
+        foreach ($row as $key => $value) {
+            if ($key === 'id') {
+                $id = $value;
+            } elseif (str_starts_with($key, '_rel_')) {
+                // e.g. _rel_connectedContact_id  →  relName = connectedContact
+                $relName = substr($key, 5, -3);
+                if ($value !== null) {
+                    try {
+                        $relMapping      = $targetMeta->getAssociationMapping($relName);
+                        $relTargetClass  = $relMapping['targetEntity'];
+                        $relResourceKey  = $this->config[$relTargetClass]['resource_key'] ?? $relName;
+                        $relationships[$relName] = [
+                            'data' => ['type' => $relResourceKey, 'id' => (string) $value],
+                        ];
+                    } catch (\Exception $e) {
+                        // skip unmapped / inaccessible relationships
+                    }
+                }
+            } else {
+                $attributes[$key] = $value;
+            }
+        }
+
+        $result = [
+            'type'       => $resourceKey,
+            'id'         => (string) $id,
+            'attributes' => $attributes,
+        ];
+
+        if (!empty($relationships)) {
+            $result['relationships'] = $relationships;
+        }
+
+        return $result;
     }
 
     private function transformRowToJsonApi(array $row): array

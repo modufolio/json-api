@@ -66,7 +66,8 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
             ->get();
 
         $this->assertIsArray($result);
-        $this->assertCount(1, $result);
+        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('included', $result);
         $this->assertArrayHasKey('id', $result[0]);
         $this->assertArrayHasKey('attributes', $result[0]);
         $this->assertEquals('Johnny', $result[0]['attributes']['first_name']);

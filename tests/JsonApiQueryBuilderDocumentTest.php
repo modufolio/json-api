@@ -102,7 +102,8 @@ class JsonApiQueryBuilderDocumentTest extends TestCase
 
         $result = $this->makeQb()->operation('show')->withId((string) $doc->getId())->get();
 
-        $this->assertCount(1, $result);
+        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('included', $result);
         $this->assertEquals('Final Report', $result[0]['attributes']['title']);
         $this->assertEquals('published', $result[0]['attributes']['status']);
     }
@@ -114,7 +115,8 @@ class JsonApiQueryBuilderDocumentTest extends TestCase
             ->operation('create')
             ->get();
 
-        $this->assertCount(1, $result);
+        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('included', $result);
         $this->assertEquals('New Doc', $result[0]['attributes']['title']);
         $this->assertNotEmpty($result[0]['id']);
     }
@@ -129,7 +131,8 @@ class JsonApiQueryBuilderDocumentTest extends TestCase
             ->operation('update')
             ->get();
 
-        $this->assertCount(1, $result);
+        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('included', $result);
         $this->assertEquals('published', $result[0]['attributes']['status']);
     }
 

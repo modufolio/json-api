@@ -150,7 +150,8 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
 
         $result = $this->makeQb()->operation('show')->withId((string) $contact->getId())->get();
 
-        $this->assertCount(1, $result);
+        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('included', $result);
         $this->assertEquals('John', $result[0]['attributes']['first_name']);
         $this->assertEquals((string) $contact->getId(), $result[0]['id']);
     }
@@ -177,7 +178,8 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
             ->operation('create')
             ->get();
 
-        $this->assertCount(1, $result);
+        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('included', $result);
         $this->assertEquals('New Account', $result[0]['attributes']['name']);
         $this->assertNotEmpty($result[0]['id']);
     }
@@ -192,7 +194,8 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
             ->operation('update')
             ->get();
 
-        $this->assertCount(1, $result);
+        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('included', $result);
         $this->assertEquals('Johnny', $result[0]['attributes']['first_name']);
     }
 
@@ -434,7 +437,8 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
 
         $result = $this->makeQb()->applyParams($params)->operation('show')->get();
 
-        $this->assertCount(1, $result);
+        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('included', $result);
         $this->assertEquals('John', $result[0]['attributes']['first_name']);
     }
 
