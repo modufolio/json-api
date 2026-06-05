@@ -176,7 +176,12 @@ class JsonApiUrlParser
     private function validateOperators(array $operators): array
     {
         $validOperators = [];
-        $allowedOperators = ['eq', 'neq', 'not', 'gt', 'gte', 'lt', 'lte', 'like', 'in', 'null', 'not_null'];
+        $allowedOperators = [
+            'eq', 'neq', 'not', 'gt', 'gte', 'lt', 'lte', 'like', 'in', 'null', 'not_null',
+            // DateFilter range operators — kept so filter[field][after]=… survives parsing
+            // and reaches DateFilter (which only understands these, not gte/lte).
+            'after', 'before', 'strictly_after', 'strictly_before',
+        ];
 
         foreach ($operators as $operator => $value) {
             // Skip non-string operator keys

@@ -131,14 +131,40 @@ class JsonApiConfigurator
 
         // Register configured filters for each entity
         foreach (array_keys($config) as $entityClass) {
-            // Always register the default JsonApiFilterHandler first
-            $registry->register($entityClass, new JsonApiFilterHandler());
+            $entityFilters = $this->filters[$entityClass] ?? [];
+
+            // Determine which fields are already owned by a declared field-specific
+            // filter (e.g. SearchFilter LIKE, DateFilter range). If the catch-all also
+            // handled those fields it would AND an exact `field = value` onto the
+            // condition — clobbering partial search and throwing on date operators.
+            $allFields = $config[$entityClass]['fields'] ?? [];
+            $coveredFields = [];
+            foreach ($entityFilters as $filter) {
+                foreach ($allFields as $field) {
+                    if ($filter->supports($field)) {
+                        $coveredFields[$field] = true;
+                    }
+                }
+            }
+
+            if (empty($coveredFields)) {
+                // No field-specific filter claims a field — keep the original
+                // unscoped catch-all so it handles every field.
+                $registry->register($entityClass, new JsonApiFilterHandler());
+            } else {
+                // Scope the catch-all to the remaining (unclaimed) fields only.
+                // If every field is owned by a field-specific filter, register no
+                // catch-all at all — an empty allow-list would mean "all fields"
+                // and reintroduce the conflict.
+                $catchAllFields = array_values(array_diff($allFields, array_keys($coveredFields)));
+                if (!empty($catchAllFields)) {
+                    $registry->register($entityClass, new JsonApiFilterHandler($catchAllFields));
+                }
+            }
 
             // Register any custom filters configured for this entity
-            if (isset($this->filters[$entityClass])) {
-                foreach ($this->filters[$entityClass] as $filter) {
-                    $registry->register($entityClass, $filter);
-                }
+            foreach ($entityFilters as $filter) {
+                $registry->register($entityClass, $filter);
             }
         }
 
