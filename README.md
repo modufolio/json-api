@@ -28,6 +28,15 @@ composer require modufolio/json-api
 - PSR-7 HTTP Message implementation
 - PSR-17 HTTP Factory implementation
 
+## Documentation
+
+- [Installation and Setup](docs/installation.md)
+- [Basic Usage](docs/basic-usage.md)
+- [Configuration](docs/configuration.md)
+- [Filtering](docs/filtering.md)
+- [Query Builder](docs/query-builder.md)
+- [API Reference](docs/reference/index.md)
+
 
 ## License
 
