@@ -282,6 +282,8 @@ final class JsonApiQueryBuilder
 
     public function get(): array
     {
+        $this->resolveIdentifier();
+
         $result = match ($this->operation) {
             'index' => $this->executeIndex(),
             'show' => $this->executeShow(),
@@ -352,6 +354,34 @@ final class JsonApiQueryBuilder
             'data' => $data,
             'included' => $included,
         ];
+    }
+
+    /**
+     * A non-numeric id is treated as a uuid when the entity maps a 'uuid'
+     * field, and swapped for the numeric primary key so every downstream
+     * id comparison stays unchanged. Unresolvable ids become '0', which no
+     * row matches — the operation then not-founds through its normal path.
+     */
+    private function resolveIdentifier(): void
+    {
+        if ($this->id === null || ctype_digit($this->id)) {
+            return;
+        }
+
+        if (!$this->meta->hasField('uuid')) {
+            $this->id = '-1';
+            return;
+        }
+
+        $resolved = $this->conn->createQueryBuilder()
+            ->select($this->conn->quoteIdentifier('id'))
+            ->from($this->meta->getTableName())
+            ->where($this->conn->quoteIdentifier($this->meta->getColumnName('uuid')) . ' = :uuid')
+            ->setParameter('uuid', $this->id)
+            ->executeQuery()
+            ->fetchOne();
+
+        $this->id = $resolved === false ? '-1' : (string) $resolved;
     }
 
     private function executeShow(): array
