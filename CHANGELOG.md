@@ -9,6 +9,20 @@ behaviour may change in any minor release.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-02
+
+### Added
+
+- **Resources can now be fetched by uuid as well as numeric id.** When the
+  id in a show, update, or delete request is not numeric and the entity
+  maps a `uuid` field, `JsonApiQueryBuilder` resolves the uuid to the
+  numeric primary key up front and runs the operation unchanged — so
+  `GET /api/contact/31331347-a19d-4a0c-8689-3f1985034300` works exactly
+  like `GET /api/contact/29`. Entities without a `uuid` field, and uuids
+  that match no row, fall through to the normal 404 path. Serialized
+  documents still expose the numeric id; nothing changes for existing
+  numeric lookups.
+
 ## [0.2.0] - 2026-06-05
 
 ### Added
