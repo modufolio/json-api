@@ -9,6 +9,31 @@ behaviour may change in any minor release.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-07
+
+### Added
+
+- **`AttributeCaster` converts request attributes to the types the entity
+  declares.** A document carries an enum as its backing value and a date as a
+  string, so handing them to setters typed `?ContactStatus` or
+  `?DateTimeImmutable` is a `TypeError`. The caster reads the Doctrine mapping,
+  covering enums, dates, booleans and decimals in one path:
+  `$entity->setStatus($caster->cast($entity, 'status', 'active'))`. It casts
+  only — the caller still calls setters, so domain logic in them survives.
+  Unmapped fields and associations pass through untouched. Non-string values
+  are left alone (JSON already produced real ints and booleans), and a string
+  on a boolean field uses `filter_var` rules rather than DBAL's `(bool)` cast,
+  which reads `"false"` as `true`.
+
+- **`InvalidAttributeValueException` carries the field and the accepted
+  values.** A well-formed attribute holding an unusable value is a semantic
+  failure, so callers should answer `422` rather than `400`. `getField()` and
+  `getAccepted()` supply what a JSON:API error object needs — a
+  `source.pointer` and, for a backed enum, the values that would have been
+  taken — without parsing the message. `getAccepted()` is empty for open-ended
+  types like dates. Extends `InvalidArgumentException`, so existing catch
+  blocks are unaffected.
+
 ## [0.3.0] - 2026-08-02
 
 ### Added
@@ -61,6 +86,8 @@ behaviour may change in any minor release.
 
 Initial public release.
 
-[Unreleased]: https://github.com/modufolio/json-api/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/modufolio/json-api/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/modufolio/json-api/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/modufolio/json-api/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/modufolio/json-api/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/modufolio/json-api/releases/tag/v0.1.0
