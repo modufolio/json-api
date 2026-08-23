@@ -1,0 +1,22 @@
+# normalize line endings
+* text=auto
+
+# git
+.gitattributes export-ignore
+.github/ export-ignore
+.gitignore export-ignore
+
+# tests
+phpstan.php export-ignore
+phpunit.xml.dist export-ignore
+.phpunit.cache/ export-ignore
+tests/ export-ignore
+
+# docs
+docs/ export-ignore
+
+# other
+.idea/ export-ignore
+.vscode/ export-ignore
+.claude/ export-ignore
+.DS_Store export-ignore
