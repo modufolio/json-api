@@ -21,6 +21,11 @@ class JsonApiConfigurator
     private array $filters = [];
 
     /**
+     * @var array<string, list<string>>
+     */
+    private array $roles = [];
+
+    /**
      * @var array<string, array>|null
      */
     private ?array $config = null;
@@ -87,6 +92,42 @@ class JsonApiConfigurator
     }
 
     /**
+     * Restrict an entity's routes to callers holding one of these roles.
+     *
+     * Mirrors filters(): keyed by entity class, so it composes with the
+     * entities([...]) style as well as the fluent resource() builder. The route
+     * loader writes the result to the route as `_is_granted_roles`, which is
+     * the same default #[IsGranted] produces — so the kernel enforces it with
+     * the role hierarchy before the controller runs.
+     *
+     * Any one of the listed roles grants access.
+     *
+     * @param class-string $entityClass
+     * @param list<string> $roles
+     * @return self
+     */
+    public function roles(string $entityClass, array $roles): self
+    {
+        $this->roles[$entityClass] = array_values(array_filter(
+            $roles,
+            static fn (string $role): bool => '' !== $role,
+        ));
+        $this->config = null; // Clear cache
+
+        return $this;
+    }
+
+    /**
+     * Get all registered roles
+     *
+     * @return array<string, list<string>>
+     */
+    public function getRoles(): array
+    {
+        return $this->roles;
+    }
+
+    /**
      * Build configuration from all registered entities
      *
      * @return array<string, array>
@@ -111,6 +152,7 @@ class JsonApiConfigurator
                 'fields' => $entityClass::getApiFields(),
                 'relationships' => $entityClass::getApiRelationships(),
                 'operations' => $entityClass::getApiOperations(),
+                'roles' => $this->roles[$entityClass] ?? [],
             ];
         }
 
@@ -226,6 +268,7 @@ class ResourceConfigurator
     private array $fields = [];
     private array $relationships = [];
     private array $operations = [];
+    private array $roles = [];
 
     public function __construct(
         private JsonApiConfigurator $configurator,
@@ -261,6 +304,21 @@ class ResourceConfigurator
         return $this;
     }
 
+    /**
+     * Roles allowed to reach this resource; any one of them grants access.
+     *
+     * @param list<string> $roles
+     */
+    public function roles(array $roles): self
+    {
+        $this->roles = array_values(array_filter(
+            $roles,
+            static fn (string $role): bool => '' !== $role,
+        ));
+        $this->save();
+        return $this;
+    }
+
     private function save(): void
     {
         $this->configurator->setResourceConfig($this->entityClass, [
@@ -268,6 +326,7 @@ class ResourceConfigurator
             'fields' => $this->fields,
             'relationships' => $this->relationships,
             'operations' => $this->operations,
+            'roles' => $this->roles,
         ]);
     }
 }

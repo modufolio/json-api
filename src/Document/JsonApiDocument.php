@@ -79,7 +79,7 @@ class JsonApiDocument implements \JsonSerializable
     /**
      * Set links for the document
      *
-     * @param array<string, string|array<string, mixed>> $links
+     * @param array<string, string|array<string, mixed>|null> $links Link values may be null (e.g. absent pagination links)
      * @return self
      */
     public function setLinks(array $links): self

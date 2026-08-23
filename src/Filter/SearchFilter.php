@@ -70,6 +70,9 @@ class SearchFilter implements FilterInterface
                     $qb->andWhere("$alias.$column = :$paramName"),
                     $bindings[$paramName] = $value
                 ],
+                default => throw new \InvalidArgumentException(
+                    sprintf('Unsupported search strategy: %s', $strategy)
+                ),
             };
 
             $paramCounter++;

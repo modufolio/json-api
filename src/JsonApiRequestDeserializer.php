@@ -93,7 +93,11 @@ class JsonApiRequestDeserializer
      */
     private function normalizeRelationship(array $relationshipData, string $relationshipName): int|array|null
     {
-        if (!isset($relationshipData['data'])) {
+        // array_key_exists, not isset: JSON:API allows `data: null` to clear a
+        // to-one relationship. isset() treats a present-but-null value as
+        // absent, which both rejected a valid null relationship and made the
+        // `$data === null` handling below unreachable.
+        if (!array_key_exists('data', $relationshipData)) {
             throw new InvalidArgumentException(
                 sprintf('Relationship "%s" must have a "data" member', $relationshipName)
             );

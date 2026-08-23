@@ -18,7 +18,7 @@ class JsonApiSerializer
      * @param array<string, mixed> $data Resource data
      * @param string|null $type Resource type (optional, for clarity)
      * @param array<string, mixed> $meta Additional metadata (optional)
-     * @param array<string, mixed> $included Included related resources (optional)
+     * @param array<int, array<string, mixed>> $included Included related resources (optional)
      * @return array<string, mixed>
      */
     public static function serializeResource(
@@ -49,7 +49,7 @@ class JsonApiSerializer
      * @param int $perPage Items per page
      * @param string|null $type Resource type (optional)
      * @param array<string, mixed> $meta Additional metadata (optional)
-     * @param array<string, mixed> $included Included related resources (optional)
+     * @param array<int, array<string, mixed>> $included Included related resources (optional)
      * @param string|null $baseUrl Base URL for pagination links (optional)
      * @return array<string, mixed>
      */

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modufolio\JsonApi;
 
 use InvalidArgumentException;
+use Negotiation\Accept;
 use Negotiation\Negotiator;
 
 /**
@@ -47,7 +48,7 @@ class InputNormalizer
     {
         $mediaType = $this->negotiator->getBest($contentType, self::SUPPORTED_FORMATS);
 
-        if ($mediaType === null) {
+        if (!$mediaType instanceof Accept) {
             // Fallback to plain JSON if content type is not recognized
             return $this->normalizeJson($payload);
         }
@@ -167,7 +168,7 @@ class InputNormalizer
     {
         $mediaType = $this->negotiator->getBest($contentTypeHeader, self::SUPPORTED_FORMATS);
 
-        if ($mediaType === null) {
+        if (!$mediaType instanceof Accept) {
             return 'json'; // Default fallback
         }
 

@@ -150,7 +150,7 @@ class JsonApiUrlParser
                 // e.g., filter[id]=1&filter[id]=2&filter[id]=3 becomes ['id' => [0 => '1', 1 => '2', 2 => '3']]
                 if (array_is_list($value)) {
                     // Convert to 'in' operator format for compatibility with ra-jsonapi-client
-                    $validatedFilters[$key] = ['in' => array_values($value)];
+                    $validatedFilters[$key] = ['in' => $value];
                 } else {
                     // Array with string keys (operators like gte, lte, in, etc.)
                     $validOperators = $this->validateOperators($value);

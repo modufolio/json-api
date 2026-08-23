@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Modufolio\JsonApi\Tests\Filter;
 
 use Modufolio\JsonApi\Filter\JsonApiFilterHandler;
-use Doctrine\DBAL\Query\QueryBuilder as DBALQueryBuilder;
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
 
@@ -13,13 +12,11 @@ class JsonApiFilterHandlerTest extends TestCase
 {
     private JsonApiFilterHandler $handler;
     private Connection $conn;
-    private DBALQueryBuilder $qb;
 
     protected function setUp(): void
     {
         $this->handler = new JsonApiFilterHandler();
         $this->conn = $this->createMock(Connection::class);
-        $this->qb = $this->createMock(DBALQueryBuilder::class);
     }
 
     public function testGetSupportedOperators(): void
