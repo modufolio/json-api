@@ -96,12 +96,28 @@ $result = $builder
     ->get();
 
 // Wrap the rows in a JSON:API document
+$toResource = fn (string $type, array $row) => (new ResourceObject($type, (string) $row['id']))
+    ->setAttributes($row['attributes'] ?? [])
+    // Every configured to-many carries linkage whether or not it was included,
+    // so dropping this loses the relationships the client asked to see.
+    ->setRelationships($row['relationships'] ?? []);
+
 $document = new JsonApiDocument();
 $document->setData(array_map(
-    fn (array $row) => (new ResourceObject('posts', (string) $row['id']))
-        ->setAttributes($row['attributes'] ?? []),
-    $result['data'] ?? $result,
+    fn (array $row) => $toResource('posts', $row),
+    $result['data'],
 ));
+
+// Included resources are a sibling of `data`, never nested inside it. Each
+// carries its own `type`. setIncluded() requires setData() to have run first.
+if (!empty($result['included'])) {
+    $document->setIncluded(array_map(
+        fn (array $row) => $toResource($row['type'], $row),
+        $result['included'],
+    ));
+}
+
+$document->setMeta(['total' => $result['total'] ?? 0]);
 
 header('Content-Type: application/vnd.api+json');
 echo json_encode($document->toArray());

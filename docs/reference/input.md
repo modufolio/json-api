@@ -42,3 +42,18 @@ public function mergeData(array $attributes, array $relationships): array
 ```
 
 `deserialize()` returns `['attributes' => [...], 'relationships' => [...]]`. When `$requireType` is true it validates the body's `type` against `$expectedType`.
+
+## AttributeCaster
+
+Casts a raw request value to the PHP type Doctrine has mapped for an entity
+field, so a normalized payload can be applied to an entity without each caller
+re-implementing the conversions.
+
+```php
+public function __construct(EntityManagerInterface $em)
+public function cast(object|string $entity, string $field, mixed $value): mixed
+```
+
+`$entity` is an instance or a class name; `$field` is the **entity property**
+name, not the JSON:API attribute name. `null` passes through untouched, and a
+value that cannot be cast raises `InvalidAttributeValueException`.

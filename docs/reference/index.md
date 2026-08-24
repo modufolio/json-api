@@ -10,6 +10,7 @@ Reference for the public classes of `modufolio/json-api`, grouped by responsibil
 | Documents & serialization | `JsonApiDocument`, `ResourceObject`, `ResourceIdentifierObject`, `ErrorObject`, `JsonApiSerializer` | [documents.md](documents.md) |
 | Filters | `FilterInterface`, `FilterRegistry`, `JsonApiFilterHandler`, `SearchFilter`, `SearchStrategy`, `DateFilter` | [filters.md](filters.md) |
 | HTTP, pagination, utilities | `ResponseFactory`, `JsonApiPaginator`, `Str`, `SafeExpressionBuilder` | [http.md](http.md) |
+| Value casting | `AttributeCaster` | [input.md](input.md) |
 
 All classes live under the `Modufolio\JsonApi` namespace (sub-namespaces as shown on each page).
 

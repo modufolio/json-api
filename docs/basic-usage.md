@@ -68,12 +68,27 @@ try {
         ->get();
 
     // 4. Assemble and emit the document
+    $toResource = fn (string $type, array $row) => (new ResourceObject($type, (string) $row['id']))
+        ->setAttributes($row['attributes'] ?? [])
+        // Every configured to-many carries linkage whether or not it was
+        // included, so dropping this loses the article's author and comments.
+        ->setRelationships($row['relationships'] ?? []);
+
     $document = new JsonApiDocument();
     $document->setData(array_map(
-        fn (array $row) => (new ResourceObject('articles', (string) $row['id']))
-            ->setAttributes($row['attributes'] ?? []),
-        $result['data'] ?? $result,
+        fn (array $row) => $toResource('articles', $row),
+        $result['data'],
     ));
+
+    // Included resources sit beside `data`, each carrying its own `type`.
+    // setIncluded() requires setData() to have run first.
+    if (!empty($result['included'])) {
+        $document->setIncluded(array_map(
+            fn (array $row) => $toResource($row['type'], $row),
+            $result['included'],
+        ));
+    }
+
     $document->setMeta(['total' => $result['total'] ?? 0]);
 
     header('Content-Type: application/vnd.api+json');
@@ -100,7 +115,11 @@ $result = $builder
     ->operation('index')
     ->withTotalCount()
     ->get();
-// $result = ['data' => [...rows...], 'total' => int]
+// $result = ['total' => int, 'data' => [...rows...], 'included' => [...]]
+// `included` is always present (empty without ?include=); `total` only with
+// withTotalCount(). Each row is ['id' => .., 'attributes' => [..],
+// 'relationships' => [..]] — relationships appear for every configured
+// to-many even when nothing was included.
 ```
 
 ### Show — `GET /articles/123`
@@ -113,7 +132,8 @@ $result = $builder
     ->applyParams($params)
     ->operation('show')
     ->get();
-// $result = [ {row} ]  — empty array if not found
+// $result = [0 => {row}, 'included' => [...]]  — empty array if not found.
+// The row is at the numeric key 0, not under 'data' as it is for index.
 ```
 
 ### Create — `POST /articles`
@@ -181,7 +201,9 @@ Each sort field must appear in the resource's `fields` list (snake_case in the U
 ['page' => ['number' => '2', 'size' => '20']]
 ```
 
-Only `page[number]` and `page[size]` are recognised; the default is page 1, size 10. There is no offset/limit form.
+Only `page[number]` and `page[size]` are recognised. There is no offset/limit form.
+
+Pagination always applies, and the two entry points have **different defaults**: a request parsed into `JsonApiQueryParams` defaults to page 1 size 10, while a builder driven by hand and never given `page()` uses its own default of size 25. Either way a `LIMIT` is emitted, so a caller that never mentioned pagination still gets one page. To return every row, say so explicitly with [`withoutPagination()`](query-builder.md#pagination).
 
 ### Sparse fieldsets
 
@@ -193,7 +215,7 @@ Only `page[number]` and `page[size]` are recognised; the default is page 1, size
 ['include' => 'author', 'fields' => ['articles' => 'title', 'authors' => 'name']]
 ```
 
-Requested fields are intersected with the `fields` allow-list.
+Requested fields are intersected with the `fields` allow-list — for the primary resource and for any included one, so `fields[authors]=name` narrows what is selected from a joined author too. A fieldset naming only unexposed fields cannot widen access; the allow-list wins.
 
 ### Including relationships
 
@@ -204,6 +226,11 @@ Requested fields are intersected with the `fields` allow-list.
 ```
 
 Each include must be in the resource's `relationships` allow-list.
+
+Nesting goes exactly one level deep, and the second segment must be a to-one:
+`comments.author` is joined onto each included comment, while a to-many second
+segment or a third segment throws `InvalidArgumentException`. See
+[Includes](query-builder.md#includes) for how each cardinality is resolved.
 
 ## Next steps
 

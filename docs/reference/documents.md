@@ -105,3 +105,5 @@ public static function serializeValidationErrors(array $validationErrors): array
 $page = JsonApiSerializer::parsePaginationParams($request->getQueryParams());
 // ['number' => 1, 'size' => 25]
 ```
+
+This helper defaults to size 25 — a third default, alongside `JsonApiQueryParams`' 10 and the query builder's own 25. It also accepts the legacy scalar `page` / `per_page` parameters in addition to `page[number]` / `page[size]`, and caps the size at 100.

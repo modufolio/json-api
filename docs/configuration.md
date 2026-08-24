@@ -160,7 +160,7 @@ $rows = (new JsonApiQueryBuilder($config, $em, $em->getConnection(), Article::cl
 
 ### Pagination defaults
 
-The default page is `['number' => 1, 'size' => 10]` (see `JsonApiQueryParams`). The `JsonApiSerializer::parsePaginationParams()` helper caps page size at 100. If you use `JsonApiPaginator` directly, the default and maximum page size are configurable:
+The default page is `['number' => 1, 'size' => 10]` (see `JsonApiQueryParams`) — but a `JsonApiQueryBuilder` driven by hand, without `applyParams()` or `page()`, falls back to its own default of size 25 instead. Both emit a `LIMIT`; `withoutPagination()` is the only way to get an unbounded result. The `JsonApiSerializer::parsePaginationParams()` helper caps page size at 100. If you use `JsonApiPaginator` directly, the default and maximum page size are configurable:
 
 ```php
 use Modufolio\JsonApi\Pagination\JsonApiPaginator;
@@ -300,9 +300,14 @@ return function (JsonApiConfigurator $api) {
 
 Clients can narrow further per request with sparse fieldsets (`?fields[articles]=id,title`), but the config `fields` list is the upper bound.
 
-### Limit include depth
+### Include depth is capped by the library
 
-Nested includes (`comments.author`) translate to JOINs. Two levels is usually fine; avoid very deep chains like `comments.author.profile.preferences`.
+Nesting is resolved to exactly one extra level, and only onto a to-one:
+`comments.author` joins the author onto each included comment. A to-many second
+segment (`comments.replies`) and any third segment
+(`comments.author.profile`) throw `InvalidArgumentException` rather than being
+silently dropped, so a deep chain fails loudly instead of returning a document
+that looks complete.
 
 ## Next steps
 

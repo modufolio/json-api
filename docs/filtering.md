@@ -229,6 +229,43 @@ Register it like any other filter:
 $registry->register(Product::class, new ActiveProductFilter());
 ```
 
+### A custom filter owns every operator on the fields it claims
+
+`supports()` does more than say when the filter runs: `buildFilterRegistry()`
+uses it to scope the catch-all **off** those fields. So once a filter claims a
+real field, the standard `eq` / `in` / `null` / `not_null` operators no longer
+reach that field through `JsonApiFilterHandler` — they arrive at your filter
+instead, and are silently ignored unless you handle them.
+
+That failure is quiet and easy to miss: `?filter[deletedAt][not_null]=true`
+still returns 200, just with the condition never applied. If your filter claims
+a field that clients may also filter conventionally, handle the operator-map
+form too:
+
+```php
+public function apply(QueryBuilder $qb, array $params, array $fieldMappings, string $alias = 't0'): array
+{
+    $value = $params['deletedAt'] ?? null;
+
+    if (is_array($value)) {
+        // Standard operators still have to work on a field this filter owns.
+        if (array_key_exists('not_null', $value)) {
+            $qb->andWhere("$alias.deleted_at IS NOT NULL");
+        } elseif (array_key_exists('null', $value)) {
+            $qb->andWhere("$alias.deleted_at IS NULL");
+        }
+
+        return [];
+    }
+
+    // ... this filter's own shorthand ...
+}
+```
+
+The alternative is to claim a field name that is *only* yours — as
+`ActiveProductFilter` does with `available` — so no conventional filtering is
+displaced.
+
 ## Security
 
 - **Parameterized always.** Filter values are bound as query parameters, never interpolated. A value like `'; DROP TABLE articles; --` becomes a harmless bound string.

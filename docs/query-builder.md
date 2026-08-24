@@ -63,6 +63,7 @@ $result = $builder
 | `sort(array $sort): self` | Sort fields; `['field' => 'ASC']` or list form `['-field']` |
 | `include(array $includes): self` | Relationships to include |
 | `page(int $number, int $size): self` | Pagination — page number and page size |
+| `withoutPagination(): self` | Emit no `LIMIT` at all — return every matching row |
 | `group(string $field): self` | Add a `GROUP BY` field |
 | `having(string $condition, array $bindings = []): self` | Add a `HAVING` clause |
 | `operation(string $operation): self` | `index`, `show`, `create`, `update`, `delete` — checked against the resource's `operations` map |
@@ -163,7 +164,26 @@ Sort fields must be in the resource's `fields` list. Sorting across a relationsh
 ->include(['author', 'comments.author'])    // nested
 ```
 
-Each include must be in the resource's `relationships` list. Keep nesting shallow — two levels (`comments.author`) is a reasonable ceiling.
+Each include must be in the resource's `relationships` list.
+
+How an include is resolved depends on its cardinality, and the difference matters:
+
+- **To-one** (`author`) is a `LEFT JOIN` on the main query. Every field the target resource exposes is selected, aliased `author_name`, `author_email`, … onto the parent's attributes. A sparse fieldset for that resource type narrows the list.
+- **To-many** (`comments`, `tags`) — both `OneToMany` and `ManyToMany` — is resolved *after* the main query by one batched `WHERE fk IN (…)` per relationship, `ManyToMany` reaching its target through the join table. To-many is never joined into the paginated query: that would multiply rows and make `LIMIT` slice joined rows rather than records.
+
+Relationship linkage (`type` + `id` pairs) is returned for every configured to-many whether or not it was included; `?include=` additionally fetches the target's attributes.
+
+### Nesting
+
+Nesting is supported to **exactly one extra level, and only onto a to-one**:
+
+```php
+->include(['comments.author'])   // ok — author is to-one on Comment
+->include(['comments.replies'])  // rejected — replies is to-many
+->include(['comments.author.x']) // rejected — too deep
+```
+
+A nested to-one is joined onto the included rows, so `comments.author` gives each included comment `author_name`, `author_email`, … in its attributes. An unknown second segment, a to-many second segment, and a path deeper than two levels all throw `InvalidArgumentException` rather than being silently dropped.
 
 ## Pagination
 
@@ -172,7 +192,17 @@ Each include must be in the resource's `relationships` list. Keep nesting shallo
 ->page(2, 20)
 ```
 
-Only page-number / page-size pagination is supported; the parser defaults to page 1, size 10. There is no offset/limit form. Pair `page()` with `withTotalCount()` when you need the total for pagination metadata and links.
+Only page-number / page-size pagination is supported. There is no offset/limit form. Pair `page()` with `withTotalCount()` when you need the total for pagination metadata and links.
+
+**Pagination always applies, and there are two different defaults.** A request parsed into `JsonApiQueryParams` defaults to page 1, size 10; a builder driven by hand and never given `page()` uses its own default of size 25. Either way a `LIMIT` is emitted, so a caller that never mentioned pagination still receives one page rather than the whole set.
+
+When you genuinely want every row — an export, or a view that renders all of its records — say so explicitly:
+
+```php
+->withoutPagination()   // no LIMIT; overrides any earlier page()
+```
+
+Use it deliberately: the result is then bounded only by the data.
 
 ## Sparse fieldsets
 
