@@ -20,6 +20,12 @@ final class JsonApiQueryBuilder
     private ClassMetadata $meta;
     private readonly array $config;
     private array $fields = [];
+    /**
+     * Sparse fieldsets as supplied, keyed by resource type. `$fields` holds
+     * only the root resource's entry; the rest is kept here so an included
+     * resource can be narrowed too.
+     */
+    private array $sparseFields = [];
     private array $filters = [];
     private array $sort = [];
     private array $includes = [];
@@ -105,6 +111,9 @@ final class JsonApiQueryBuilder
 
         // Check if this is sparse fieldsets format (nested array with resource types as keys)
         if (!empty($fields) && is_array(reset($fields))) {
+            // Retain the whole map: buildJoins() and fetchToManyIncludes()
+            // narrow included resources with it.
+            $this->sparseFields = $fields;
             // Extract fields for the current resource type
             $resourceKey = $this->config[$this->resourceClass]['resource_key'] ?? null;
             if ($resourceKey && isset($fields[$resourceKey])) {
@@ -163,6 +172,22 @@ final class JsonApiQueryBuilder
     public function page(int $number, int $size): self
     {
         $this->page = ['number' => $number, 'size' => $size];
+        return $this;
+    }
+
+    /**
+     * Return every matching row, with no LIMIT.
+     *
+     * Pagination is otherwise unconditional — the default page size applies
+     * even when the caller never asked for it — so a caller that legitimately
+     * needs the whole set (an export, a board that renders all its cards) had
+     * no way to say so and silently received the first page instead.
+     *
+     * Use deliberately: the result set is then bounded only by the data.
+     */
+    public function withoutPagination(): self
+    {
+        $this->page = ['number' => 1, 'size' => null];
         return $this;
     }
 
@@ -743,9 +768,11 @@ final class JsonApiQueryBuilder
 
                 $mapping = $currentMeta->getAssociationMapping($segment);
 
-                // OneToMany — skip LEFT JOIN to prevent row multiplication.
-                // These relationships are resolved via fetchToManyIncludes() after the main query.
-                if (!($mapping['type'] & ClassMetadata::TO_ONE) && !isset($mapping['joinTable'])) {
+                // To-many — skip LEFT JOIN to prevent row multiplication, which
+                // would also make LIMIT slice joined rows rather than records.
+                // Both OneToMany and ManyToMany are resolved by
+                // fetchToManyIncludes() after the main query instead.
+                if (!($mapping['type'] & ClassMetadata::TO_ONE)) {
                     break;
                 }
 
@@ -758,31 +785,33 @@ final class JsonApiQueryBuilder
                 $targetClass = $mapping['targetEntity'];
                 $targetMeta = $this->em->getClassMetadata($targetClass);
                 $targetTable = $targetMeta->getTableName();
-                $allowedFields = $this->config[$targetClass]['fields'] ?? $targetMeta->getFieldNames();
-                $field = reset($allowedFields);
-                if (!$field) {
+                $allowedFields = $this->targetFields($targetClass, $targetMeta);
+
+                if ($allowedFields === []) {
                     throw new InvalidArgumentException("No fields defined for target entity $targetClass in path $path");
                 }
-                $column = $targetMeta->fieldMappings[$field]['columnName'] ?? $field;
 
-                if ($mapping['type'] & ClassMetadata::TO_ONE) {
-                    // ManyToOne or OneToOne
-                    $joinColumn = $mapping['joinColumns'][0]['name'] ?? 'id';
-                    $referencedColumn = $mapping['joinColumns'][0]['referencedColumnName'] ?? 'id';
-                    $condition = "$currentAlias.$joinColumn = $joinAlias.$referencedColumn";
-                } else {
-                    // ManyToMany - has a join table
-                    $joinTable = $mapping['joinTable']['name'];
-                    $joinColumn = $mapping['joinTable']['joinColumns'][0]['name'];
-                    $condition = "$currentAlias.id = $joinTable.$joinColumn";
+                // Every allowed field, not just the first: a caller needing two
+                // columns off a joined record (a person's first and last name)
+                // otherwise had no way to ask for the second.
+                $select = [];
+
+                foreach ($allowedFields as $field) {
+                    $column = $targetMeta->fieldMappings[$field]['columnName'] ?? $field;
+                    $select[] = "$joinAlias.$column AS {$segment}_$field";
                 }
+
+                // ManyToOne or OneToOne — to-many never reaches here.
+                $joinColumn = $mapping['joinColumns'][0]['name'] ?? 'id';
+                $referencedColumn = $mapping['joinColumns'][0]['referencedColumnName'] ?? 'id';
+                $condition = "$currentAlias.$joinColumn = $joinAlias.$referencedColumn";
 
                 $joins[] = [
                     'alias' => $currentAlias,
                     'table' => $targetTable,
                     'joinAlias' => $joinAlias,
                     'condition' => $condition,
-                    'select' => ["$joinAlias.$column AS {$segment}_$field"],
+                    'select' => $select,
                 ];
 
                 $currentAlias = $joinAlias;
@@ -795,6 +824,92 @@ final class JsonApiQueryBuilder
             'query' => $joins,
             'bindings' => [],
         ];
+    }
+
+    /**
+     * Join-table coordinates for a ManyToMany association, or null when the
+     * mapping is not ManyToMany.
+     *
+     * The join table is declared on the owning side only, so an inverse-side
+     * mapping is resolved by reading it back off the target entity — and its
+     * two columns then swap roles, because "parent" and "target" are relative
+     * to the side being queried.
+     *
+     * Accepts whatever getAssociationMapping() returns — an array on older
+     * Doctrine, an ArrayAccess mapping object on ORM 3 — and only ever reads
+     * it by key, as the rest of this class does.
+     *
+     * @param array<string, mixed>|\ArrayAccess<string, mixed> $mapping
+     *
+     * @return array{joinTable: string, parentColumn: string, targetColumn: string}|null
+     */
+    private function manyToManyJoin(array|\ArrayAccess $mapping): ?array
+    {
+        if (!($mapping['type'] & ClassMetadata::MANY_TO_MANY)) {
+            return null;
+        }
+
+        if (isset($mapping['joinTable'])) {
+            $joinTable = $mapping['joinTable'];
+
+            return [
+                'joinTable'    => $joinTable['name'],
+                'parentColumn' => $joinTable['joinColumns'][0]['name'],
+                'targetColumn' => $joinTable['inverseJoinColumns'][0]['name'],
+            ];
+        }
+
+        $mappedBy = $mapping['mappedBy'] ?? null;
+
+        if ($mappedBy === null) {
+            return null;
+        }
+
+        $targetMeta = $this->em->getClassMetadata($mapping['targetEntity']);
+
+        if (!$targetMeta->hasAssociation($mappedBy)) {
+            return null;
+        }
+
+        $owning = $targetMeta->getAssociationMapping($mappedBy);
+
+        if (!isset($owning['joinTable'])) {
+            return null;
+        }
+
+        $joinTable = $owning['joinTable'];
+
+        return [
+            'joinTable'    => $joinTable['name'],
+            // Mirrored: from this side, the owning side's inverse column is
+            // the one holding our parent ids.
+            'parentColumn' => $joinTable['inverseJoinColumns'][0]['name'],
+            'targetColumn' => $joinTable['joinColumns'][0]['name'],
+        ];
+    }
+
+    /**
+     * The fields to read from an included resource: its configured allow-list,
+     * narrowed by a sparse fieldset for that type when one was supplied.
+     *
+     * @return array<int, string>
+     */
+    private function targetFields(string $targetClass, ClassMetadata $targetMeta): array
+    {
+        $allowed = $this->config[$targetClass]['fields'] ?? $targetMeta->getFieldNames();
+        $resourceKey = $this->config[$targetClass]['resource_key'] ?? null;
+
+        if ($resourceKey !== null && isset($this->sparseFields[$resourceKey])) {
+            $requested = array_intersect($allowed, (array) $this->sparseFields[$resourceKey]);
+
+            // An empty intersection means the caller asked only for fields this
+            // resource does not expose; the allow-list wins over the request.
+            if ($requested !== []) {
+                return array_values($requested);
+            }
+        }
+
+        return array_values($allowed);
     }
 
     private function buildGroup(): array
@@ -821,6 +936,12 @@ final class JsonApiQueryBuilder
 
     private function buildPage(): array
     {
+        // A null size means pagination was explicitly switched off; returning
+        // no bindings is what tells buildQuery() to leave LIMIT/OFFSET unset.
+        if ($this->page['size'] === null) {
+            return ['query' => null, 'bindings' => []];
+        }
+
         return [
             'query' => null,
             'bindings' => [
@@ -833,7 +954,11 @@ final class JsonApiQueryBuilder
     private function fetchTotalCount(): int
     {
         $countQb = clone $this->qb;
-        $countQb->select("COUNT($this->alias.id) AS total");
+        // DISTINCT because the built query may carry joins: a to-one join is
+        // one-to-one, but a self-referencing or nullable chain — and any join
+        // a caller added themselves — can repeat a root row and inflate the
+        // total the pager is built from.
+        $countQb->select("COUNT(DISTINCT $this->alias.id) AS total");
         $countQb->resetGroupBy();
         $countQb->setMaxResults(null);
         $countQb->setFirstResult(0);
@@ -886,8 +1011,27 @@ final class JsonApiQueryBuilder
 
         // Relationships explicitly requested via ?include=
         $requestedIncludes = [];
+        /** @var array<string, list<string>> $nestedIncludes */
+        $nestedIncludes = [];
         foreach ($this->includes as $path) {
-            $requestedIncludes[explode('.', $path)[0]] = true;
+            $segments = explode('.', $path);
+            $requestedIncludes[$segments[0]] = true;
+
+            // A second segment names a to-one on the included resource — the
+            // `comments.author` shape from the docs.
+            if (isset($segments[1])) {
+                // Only one level of nesting is resolved. Truncating a deeper
+                // path silently would return a result that looks complete but
+                // is missing what was asked for.
+                if (isset($segments[2])) {
+                    throw new InvalidArgumentException(
+                        "Include path $path nests too deeply; only one level "
+                        . 'of nesting (rel.toOneRel) is supported.'
+                    );
+                }
+
+                $nestedIncludes[$segments[0]][] = $segments[1];
+            }
         }
 
         // All OneToMany associations configured for this resource
@@ -903,13 +1047,18 @@ final class JsonApiQueryBuilder
 
             $mapping = $this->meta->getAssociationMapping($segment);
 
-            // Only handle OneToMany here (TO_ONE via JOIN, ManyToMany via join table)
-            if (($mapping['type'] & ClassMetadata::TO_ONE) || isset($mapping['joinTable'])) {
+            // TO_ONE is resolved by a join in the main query.
+            if ($mapping['type'] & ClassMetadata::TO_ONE) {
                 continue;
             }
 
+            $manyToMany = $this->manyToManyJoin($mapping);
+
+            // OneToMany needs the inverse side to know its foreign key;
+            // ManyToMany carries its join table instead.
             $mappedBy = $mapping['mappedBy'] ?? null;
-            if (!$mappedBy) {
+
+            if ($manyToMany === null && !$mappedBy) {
                 continue;
             }
 
@@ -919,8 +1068,12 @@ final class JsonApiQueryBuilder
             $targetKey    = $this->config[$targetClass]['resource_key']
                 ?? strtolower(substr($targetClass, strrpos($targetClass, '\\') + 1));
 
-            $inverseMapping = $targetMeta->getAssociationMapping($mappedBy);
-            $fkColumn       = $inverseMapping['joinColumns'][0]['name'] ?? $mappedBy . '_id';
+            if ($manyToMany === null) {
+                $inverseMapping = $targetMeta->getAssociationMapping($mappedBy);
+                $fkColumn       = $inverseMapping['joinColumns'][0]['name'] ?? $mappedBy . '_id';
+            } else {
+                $fkColumn = $manyToMany['parentColumn'];
+            }
 
             // Always need id; only fetch full fields when this rel is in ?include
             $isIncluded = isset($requestedIncludes[$segment]);
@@ -928,7 +1081,7 @@ final class JsonApiQueryBuilder
             $selectParts = [$this->conn->quoteIdentifier('id')];
 
             if ($isIncluded) {
-                $allowedFields = $this->config[$targetClass]['fields'] ?? $targetMeta->getFieldNames();
+                $allowedFields = $this->targetFields($targetClass, $targetMeta);
                 foreach ($allowedFields as $field) {
                     $col = $targetMeta->fieldMappings[$field]['columnName'] ?? $field;
                     if ($col !== 'id') {
@@ -950,6 +1103,61 @@ final class JsonApiQueryBuilder
                 }
             }
 
+            // Nested `rel.subRel` — join the to-one named by the second segment
+            // and select its columns onto the included row, so a caller can
+            // read a related record's fields rather than only its foreign key.
+            $nestedJoins = [];
+            $nestedSelects = [];
+            $nestedAlias = 0;
+
+            if ($isIncluded) {
+                foreach ($nestedIncludes[$segment] ?? [] as $subSegment) {
+                    if (!$targetMeta->hasAssociation($subSegment)) {
+                        throw new InvalidArgumentException(
+                            "Unknown include: $subSegment in path $segment.$subSegment"
+                        );
+                    }
+
+                    $subMapping = $targetMeta->getAssociationMapping($subSegment);
+
+                    // Only to-one nests here. A to-many under a to-many would
+                    // need its own batched query per parent set; rejecting it
+                    // is better than silently returning nothing.
+                    if (!($subMapping['type'] & ClassMetadata::TO_ONE) || !isset($subMapping['joinColumns'])) {
+                        throw new InvalidArgumentException(
+                            "Nested include $segment.$subSegment is not a to-one relationship; "
+                            . 'only to-one nesting is supported.'
+                        );
+                    }
+
+                    $subClass = $subMapping['targetEntity'];
+                    $subMeta = $this->em->getClassMetadata($subClass);
+                    $subAlias = 'n' . $nestedAlias++;
+                    $subFk = $subMapping['joinColumns'][0]['name'] ?? $subSegment . '_id';
+                    $subReferenced = $subMapping['joinColumns'][0]['referencedColumnName'] ?? 'id';
+
+                    $nestedJoins[] = sprintf(
+                        'LEFT JOIN %s %s ON %%s.%s = %s.%s',
+                        $this->conn->quoteIdentifier($subMeta->getTableName()),
+                        $subAlias,
+                        $this->conn->quoteIdentifier($subFk),
+                        $subAlias,
+                        $this->conn->quoteIdentifier($subReferenced)
+                    );
+
+                    foreach ($this->targetFields($subClass, $subMeta) as $subField) {
+                        $subColumn = $subMeta->fieldMappings[$subField]['columnName'] ?? $subField;
+                        $nestedSelects[] = sprintf(
+                            '%s.%s AS %s_%s',
+                            $subAlias,
+                            $this->conn->quoteIdentifier($subColumn),
+                            $subSegment,
+                            $subField
+                        );
+                    }
+                }
+            }
+
             // Build IN clause with named parameters
             $placeholders = [];
             $bindings     = [];
@@ -960,14 +1168,59 @@ final class JsonApiQueryBuilder
             }
 
             $quotedFk = $this->conn->quoteIdentifier($fkColumn);
-            $sql = sprintf(
-                'SELECT %s, %s AS __parent_id FROM %s WHERE %s IN (%s)',
-                implode(', ', $selectParts),
-                $quotedFk,
-                $targetTable,
-                $quotedFk,
-                implode(', ', $placeholders)
+            $quotedTarget = $this->conn->quoteIdentifier($targetTable);
+
+            // Qualify the target's own columns in every case: a nested join or
+            // the ManyToMany join table can otherwise make `id` ambiguous.
+            // Each part is either `"col"` or `"col" AS alias`, and the table
+            // prefix is correct for both since the alias trails the column.
+            $qualified = array_map(
+                static fn (string $part): string => $quotedTarget . '.' . $part,
+                $selectParts
             );
+            $qualified = array_merge($qualified, $nestedSelects);
+
+            $joinSql = '';
+
+            foreach ($nestedJoins as $nestedJoin) {
+                $joinSql .= ' ' . sprintf($nestedJoin, $quotedTarget);
+            }
+
+            if ($manyToMany === null) {
+                // OneToMany: the foreign key lives on the target row itself.
+                $sql = sprintf(
+                    'SELECT %s, %s.%s AS __parent_id FROM %s%s WHERE %s.%s IN (%s)',
+                    implode(', ', $qualified),
+                    $quotedTarget,
+                    $quotedFk,
+                    $quotedTarget,
+                    $joinSql,
+                    $quotedTarget,
+                    $quotedFk,
+                    implode(', ', $placeholders)
+                );
+            } else {
+                // ManyToMany: the owning row is reached through the join table,
+                // which supplies the parent id.
+                $joinTable = $this->conn->quoteIdentifier($manyToMany['joinTable']);
+                $quotedTargetColumn = $this->conn->quoteIdentifier($manyToMany['targetColumn']);
+
+                $sql = sprintf(
+                    'SELECT %s, %s.%s AS __parent_id FROM %s INNER JOIN %s ON %s.%s = %s.id%s WHERE %s.%s IN (%s)',
+                    implode(', ', $qualified),
+                    $joinTable,
+                    $quotedFk,
+                    $quotedTarget,
+                    $joinTable,
+                    $joinTable,
+                    $quotedTargetColumn,
+                    $quotedTarget,
+                    $joinSql,
+                    $joinTable,
+                    $quotedFk,
+                    implode(', ', $placeholders)
+                );
+            }
 
             $rows = $this->conn->executeQuery($sql, $bindings)->fetchAllAssociative();
             foreach ($rows as $row) {
@@ -1133,6 +1386,7 @@ final class JsonApiQueryBuilder
     private function reset(): void
     {
         $this->fields = [];
+        $this->sparseFields = [];
         $this->filters = [];
         $this->sort = [];
         $this->includes = [];
@@ -1192,7 +1446,12 @@ final class JsonApiQueryBuilder
         if ($this->sort) {
             $queryParts[] = 'sort=' . implode(',', $this->sort);
         }
-        if ($this->page['size'] !== 25 || $this->page['number'] !== 1) {
+        // A null size means pagination was switched off, and there is no
+        // JSON:API parameter for "no limit" — emitting `page[size]=` would
+        // produce an empty value that parses back as a different query.
+        if ($this->page['size'] !== null
+            && ($this->page['size'] !== 25 || $this->page['number'] !== 1)
+        ) {
             $queryParts[] = "page[number]={$this->page['number']}";
             $queryParts[] = "page[size]={$this->page['size']}";
         }

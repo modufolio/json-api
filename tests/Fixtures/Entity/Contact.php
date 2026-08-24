@@ -7,6 +7,8 @@ namespace Modufolio\JsonApi\Tests\Fixtures\Entity;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Traits\SoftDeleteable;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Traits\Timestampable;
 use Modufolio\JsonApi\JsonApiResource;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
 
@@ -30,6 +32,17 @@ class Contact implements JsonApiResource
 
     #[ORM\ManyToOne(inversedBy: 'contacts')]
     private ?Organization $organization = null;
+
+    /**
+     * The owning side of the ManyToMany — it declares the join table.
+     *
+     * @var Collection<int, Tag>
+     */
+    #[ORM\ManyToMany(targetEntity: Tag::class, inversedBy: 'contacts')]
+    #[ORM\JoinTable(name: 'contact_tags')]
+    #[ORM\JoinColumn(name: 'contact_id', referencedColumnName: 'id')]
+    #[ORM\InverseJoinColumn(name: 'tag_id', referencedColumnName: 'id')]
+    private Collection $tags;
 
     #[Assert\NotBlank]
     #[Assert\Length(max: 25)]
@@ -70,6 +83,28 @@ class Contact implements JsonApiResource
     #[ORM\Column(name: 'postal_code', length: 25, nullable: true)]
     private ?string $postalCode = null;
 
+    public function __construct()
+    {
+        $this->tags = new ArrayCollection();
+    }
+
+    /**
+     * @return Collection<int, Tag>
+     */
+    public function getTags(): Collection
+    {
+        return $this->tags;
+    }
+
+    public function addTag(Tag $tag): self
+    {
+        if (!$this->tags->contains($tag)) {
+            $this->tags->add($tag);
+        }
+
+        return $this;
+    }
+
     public function getId(): ?int
     {
         return $this->id;
@@ -102,7 +137,8 @@ class Contact implements JsonApiResource
     {
         return [
             'account',
-            'organization'
+            'organization',
+            'tags'
         ];
     }
 
