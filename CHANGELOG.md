@@ -8,6 +8,7 @@ While the project is in the `0.x` series the public API is not considered stable
 behaviour may change in any minor release.
 
 ## [Unreleased]
+  a URI assertion — so anyone who tried it hit broken SQL.
 
 ## [0.4.0] - 2026-08-07
 
