@@ -132,8 +132,9 @@ $result = $builder
     ->applyParams($params)
     ->operation('show')
     ->get();
-// $result = [0 => {row}, 'included' => [...]]  — empty array if not found.
-// The row is at the numeric key 0, not under 'data' as it is for index.
+// $result = ['data' => {row}, 'included' => [...]]
+// `data` is the resource itself, not a one-item list. A missing record gives
+// ['data' => null], which the caller answers with a 404.
 ```
 
 ### Create — `POST /articles`

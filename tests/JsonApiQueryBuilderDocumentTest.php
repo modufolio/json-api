@@ -104,10 +104,10 @@ class JsonApiQueryBuilderDocumentTest extends TestCase
 
         $result = $this->makeQb()->operation('show')->withId((string) $doc->getId())->get();
 
-        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('data', $result);
         $this->assertArrayHasKey('included', $result);
-        $this->assertEquals('Final Report', $result[0]['attributes']['title']);
-        $this->assertEquals('published', $result[0]['attributes']['status']);
+        $this->assertEquals('Final Report', $result['data']['attributes']['title']);
+        $this->assertEquals('published', $result['data']['attributes']['status']);
     }
 
     public function testCreate(): void
@@ -117,10 +117,10 @@ class JsonApiQueryBuilderDocumentTest extends TestCase
             ->operation('create')
             ->get();
 
-        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('data', $result);
         $this->assertArrayHasKey('included', $result);
-        $this->assertEquals('New Doc', $result[0]['attributes']['title']);
-        $this->assertNotEmpty($result[0]['id']);
+        $this->assertEquals('New Doc', $result['data']['attributes']['title']);
+        $this->assertNotEmpty($result['data']['id']);
     }
 
     public function testUpdate(): void
@@ -134,9 +134,9 @@ class JsonApiQueryBuilderDocumentTest extends TestCase
             ->operation('update')
             ->get();
 
-        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('data', $result);
         $this->assertArrayHasKey('included', $result);
-        $this->assertEquals('published', $result[0]['attributes']['status']);
+        $this->assertEquals('published', $result['data']['attributes']['status']);
     }
 
     public function testDelete(): void

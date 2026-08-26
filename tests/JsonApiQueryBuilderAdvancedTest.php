@@ -155,17 +155,18 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
 
         $result = $this->makeQb()->operation('show')->withId((string) $contact->getId())->get();
 
-        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('data', $result);
         $this->assertArrayHasKey('included', $result);
-        $this->assertEquals('John', $result[0]['attributes']['first_name']);
-        $this->assertEquals((string) $contact->getId(), $result[0]['id']);
+        $this->assertEquals('John', $result['data']['attributes']['first_name']);
+        $this->assertEquals((string) $contact->getId(), $result['data']['id']);
     }
 
     public function testShowNotFound(): void
     {
         $result = $this->makeQb()->operation('show')->withId('99999')->get();
 
-        $this->assertEquals([], $result);
+        // A missing record is a null `data`, which the caller turns into a 404.
+        $this->assertSame(['data' => null], $result);
     }
 
     public function testShowWithNoIdThrows(): void
@@ -183,10 +184,10 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
             ->operation('create')
             ->get();
 
-        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('data', $result);
         $this->assertArrayHasKey('included', $result);
-        $this->assertEquals('New Account', $result[0]['attributes']['name']);
-        $this->assertNotEmpty($result[0]['id']);
+        $this->assertEquals('New Account', $result['data']['attributes']['name']);
+        $this->assertNotEmpty($result['data']['id']);
     }
 
     public function testUpdate(): void
@@ -200,9 +201,9 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
             ->operation('update')
             ->get();
 
-        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('data', $result);
         $this->assertArrayHasKey('included', $result);
-        $this->assertEquals('Johnny', $result[0]['attributes']['first_name']);
+        $this->assertEquals('Johnny', $result['data']['attributes']['first_name']);
     }
 
     public function testUpdateWithNoIdThrows(): void
@@ -448,9 +449,9 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
 
         $result = $this->makeQb()->applyParams($params)->operation('show')->get();
 
-        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('data', $result);
         $this->assertArrayHasKey('included', $result);
-        $this->assertEquals('John', $result[0]['attributes']['first_name']);
+        $this->assertEquals('John', $result['data']['attributes']['first_name']);
     }
 
     public function testBuildUri(): void

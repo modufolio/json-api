@@ -214,14 +214,14 @@ class JsonApiController
             ->operation('show')
             ->get();
 
-        if (empty($result)) {
+        if (($result['data'] ?? null) === null) {
             $resourceKey = $this->config[$entityClass]['resource_key'];
             return $this->errorResponse(ucfirst($resourceKey) . " not found", 404);
         }
 
         $resourceKey = $this->config[$entityClass]['resource_key'];
-        // executeShow now returns an array with one item in JSON:API format
-        $item = $result[0];
+        // show returns the resource itself under `data`, never a one-item list
+        $item = $result['data'];
 
         $document = new JsonApiDocument();
         $document->setData($this->createResourceObject($item, $resourceKey));

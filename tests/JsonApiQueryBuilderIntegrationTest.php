@@ -68,12 +68,12 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
             ->get();
 
         $this->assertIsArray($result);
-        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('data', $result);
         $this->assertArrayHasKey('included', $result);
-        $this->assertArrayHasKey('id', $result[0]);
-        $this->assertArrayHasKey('attributes', $result[0]);
-        $this->assertEquals('Johnny', $result[0]['attributes']['first_name']);
-        $this->assertEquals('johnny@test.com', $result[0]['attributes']['email']);
+        $this->assertArrayHasKey('id', $result['data']);
+        $this->assertArrayHasKey('attributes', $result['data']);
+        $this->assertEquals('Johnny', $result['data']['attributes']['first_name']);
+        $this->assertEquals('johnny@test.com', $result['data']['attributes']['email']);
     }
 
     public function testDeleteOperation(): void

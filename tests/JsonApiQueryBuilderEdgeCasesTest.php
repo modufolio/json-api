@@ -254,7 +254,7 @@ class JsonApiQueryBuilderEdgeCasesTest extends TestCase
         $this->assertIsArray($result);
         $this->assertNotEmpty($result);
 
-        $contactData = $result[0];
+        $contactData = $result['data'];
         $this->assertArrayHasKey('id', $contactData);
         $this->assertArrayHasKey('attributes', $contactData);
         $this->assertEquals($contactId, $contactData['id']);
@@ -272,7 +272,7 @@ class JsonApiQueryBuilderEdgeCasesTest extends TestCase
 
         $result = $queryBuilder->operation('show')->withId('999999')->get();
 
-        $this->assertEquals([], $result);
+        $this->assertSame(['data' => null], $result);
     }
 
     public function testInvalidFieldValidation(): void

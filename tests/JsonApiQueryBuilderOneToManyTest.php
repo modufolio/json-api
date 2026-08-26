@@ -257,11 +257,11 @@ class JsonApiQueryBuilderOneToManyTest extends TestCase
             ->withId($id)
             ->get();
 
-        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('data', $result);
         $this->assertArrayHasKey('included', $result);
         $this->assertCount(3, $result['included']);
 
-        $item = $result[0];
+        $item = $result['data'];
         $this->assertArrayHasKey('relationships', $item);
         $this->assertArrayHasKey('contacts', $item['relationships']);
         $this->assertCount(3, $item['relationships']['contacts']['data']);
@@ -294,9 +294,9 @@ class JsonApiQueryBuilderOneToManyTest extends TestCase
             ->get();
 
         // Always returns [0 => $item, 'included' => []] regardless of whether includes were requested.
-        $this->assertArrayHasKey(0, $result);
+        $this->assertArrayHasKey('data', $result);
         $this->assertArrayHasKey('included', $result);
         $this->assertEmpty($result['included']);
-        $this->assertEquals('Acme Corp', $result[0]['attributes']['name']);
+        $this->assertEquals('Acme Corp', $result['data']['attributes']['name']);
     }
 }

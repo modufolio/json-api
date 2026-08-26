@@ -344,7 +344,7 @@ final class JsonApiQueryBuilder
     // ────────────────────────────────────────────────────────────────────────────────
 
     /**
-     * @return array<array-key, mixed>
+     * @return array<string, mixed>
      */
     public function get(): array
     {
@@ -454,7 +454,7 @@ final class JsonApiQueryBuilder
     }
 
     /**
-     * @return array<array-key, mixed>
+     * @return array<string, mixed>
      */
     private function executeShow(): array
     {
@@ -480,7 +480,10 @@ final class JsonApiQueryBuilder
         $rawData = $this->qb->executeQuery()->fetchAssociative();
 
         if (!$rawData) {
-            return [];
+            // No such record. The caller turns a null `data` into a 404 — the
+            // spec has no document shape for a missing single resource, and a
+            // bare [] could not be told apart from a malformed result.
+            return ['data' => null];
         }
 
         $item = $this->transformRowToJsonApi($rawData);
@@ -500,8 +503,10 @@ final class JsonApiQueryBuilder
             }
         }
 
-        // Return using both numeric key (backward compat: $result[0]) and 'included' key.
-        return [0 => $item, 'included' => $included];
+        // A single resource is the `data` member itself, not a one-element
+        // list — the same split every JSON:API implementation makes between a
+        // resource document and a collection document.
+        return ['data' => $item, 'included' => $included];
     }
 
     /**

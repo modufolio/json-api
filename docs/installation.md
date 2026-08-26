@@ -224,13 +224,13 @@ class ApiController
             ->operation('show')
             ->get();
 
-        if (empty($result)) {
+        if (($result['data'] ?? null) === null) {
             return $this->errorResponse('Resource not found', 404);
         }
 
         $resourceKey = $this->config[$entityClass]['resource_key'];
         $document = new JsonApiDocument();
-        $document->setData($this->createResourceObject($result[0], $resourceKey));
+        $document->setData($this->createResourceObject($result['data'], $resourceKey));
 
         return $this->jsonApiResponse($document);
     }
