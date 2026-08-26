@@ -93,7 +93,7 @@ class SearchFilter implements FilterInterface
                 SearchStrategy::END->value => 'LIKE %value (ends with)',
             ],
             'properties' => array_map(
-                fn(SearchStrategy $s) => $s->value,
+                fn(SearchStrategy|string $s) => $s instanceof SearchStrategy ? $s->value : $s,
                 $this->properties
             ),
         ];

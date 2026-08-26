@@ -59,10 +59,10 @@ class FilterRegistry
      *
      * @param string $resourceClass The resource class
      * @param QueryBuilder $qb The DBAL query builder
-     * @param array $params Filter parameters from the request
-     * @param array $fieldMappings Entity field to column mappings
+     * @param array<string, mixed> $params Filter parameters from the request
+     * @param array<string, mixed> $fieldMappings Entity field to column mappings
      * @param string $alias Table alias (default: 't0')
-     * @return array Combined bindings from all filters
+     * @return array<string, mixed> Combined bindings from all filters
      */
     public function applyFilters(
         string $resourceClass,
@@ -86,7 +86,7 @@ class FilterRegistry
      * Get description of all filters for a resource class
      *
      * @param string $resourceClass
-     * @return array
+     * @return list<array<string, mixed>>
      */
     public function getFilterDescriptions(string $resourceClass): array
     {

@@ -26,7 +26,7 @@ class JsonApiConfigurator
     private array $roles = [];
 
     /**
-     * @var array<string, array>|null
+     * @var array<string, array<string, mixed>>|null
      */
     private ?array $config = null;
 
@@ -130,7 +130,7 @@ class JsonApiConfigurator
     /**
      * Build configuration from all registered entities
      *
-     * @return array<string, array>
+     * @return array<string, array<string, mixed>>
      */
     public function buildConfig(): array
     {
@@ -219,6 +219,9 @@ class JsonApiConfigurator
      * @param class-string $entityClass
      * @return ResourceConfigurator
      */
+    /**
+     * @param class-string<JsonApiResource> $entityClass
+     */
     public function resource(string $entityClass): ResourceConfigurator
     {
         // Initialize config if null, but don't clear existing config
@@ -232,6 +235,9 @@ class JsonApiConfigurator
      * Set resource configuration
      *
      * @internal Used by ResourceConfigurator
+     *
+     * @param class-string<JsonApiResource> $entityClass
+     * @param array<string, mixed>          $config
      */
     public function setResourceConfig(string $entityClass, array $config): void
     {
@@ -265,11 +271,18 @@ class JsonApiConfigurator
 class ResourceConfigurator
 {
     private string $resourceKey = '';
+    /** @var list<string> */
     private array $fields = [];
+    /** @var list<string> */
     private array $relationships = [];
+    /** @var array<string, bool> */
     private array $operations = [];
+    /** @var list<string> */
     private array $roles = [];
 
+    /**
+     * @param class-string<JsonApiResource> $entityClass
+     */
     public function __construct(
         private JsonApiConfigurator $configurator,
         private string $entityClass
@@ -283,6 +296,9 @@ class ResourceConfigurator
         return $this;
     }
 
+    /**
+     * @param list<string> $fields
+     */
     public function fields(array $fields): self
     {
         $this->fields = $fields;
@@ -290,6 +306,9 @@ class ResourceConfigurator
         return $this;
     }
 
+    /**
+     * @param list<string> $relationships
+     */
     public function relationships(array $relationships): self
     {
         $this->relationships = $relationships;
@@ -297,6 +316,9 @@ class ResourceConfigurator
         return $this;
     }
 
+    /**
+     * @param array<string, bool> $operations
+     */
     public function operations(array $operations): self
     {
         $this->operations = $operations;

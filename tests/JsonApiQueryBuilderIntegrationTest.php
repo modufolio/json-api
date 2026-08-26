@@ -14,6 +14,7 @@ use PHPUnit\Framework\TestCase;
 class JsonApiQueryBuilderIntegrationTest extends TestCase
 {
     private EntityManager $em;
+    /** @var array<string, mixed> */
     private array $config;
 
     protected function setUp(): void
@@ -51,6 +52,7 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
     public function testUpdateOperation(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['firstName' => 'John']);
+        $this->assertNotNull($contact);
 
         $queryBuilder = new JsonApiQueryBuilder(
             $this->config,
@@ -77,6 +79,7 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
     public function testDeleteOperation(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['firstName' => 'John']);
+        $this->assertNotNull($contact);
         $contactId = $contact->getId();
 
         $queryBuilder = new JsonApiQueryBuilder(

@@ -18,6 +18,7 @@ class JsonApiQueryBuilderValidationTest extends TestCase
 {
     private EntityManager $em;
     private JsonApiQueryBuilder $queryBuilder;
+    /** @var array<string, mixed> */
     private array $config;
 
     protected function setUp(): void

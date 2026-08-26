@@ -15,6 +15,7 @@ use InvalidArgumentException;
  */
 class JsonApiFilterHandler implements FilterInterface
 {
+    /** @var array<string, string> */
     private array $operators = [
         'eq' => '=',
         'neq' => '!=',
@@ -29,13 +30,13 @@ class JsonApiFilterHandler implements FilterInterface
         'not_null' => 'IS NOT NULL',
     ];
 
-    /** @var array List of allowed fields for this filter */
+    /** @var list<string> List of allowed fields for this filter */
     private array $allowedFields;
 
     /**
      * Constructor
      *
-     * @param array $allowedFields List of fields this filter can operate on (empty = all fields)
+     * @param list<string> $allowedFields List of fields this filter can operate on (empty = all fields)
      */
     public function __construct(array $allowedFields = [])
     {
@@ -46,10 +47,10 @@ class JsonApiFilterHandler implements FilterInterface
      * Apply filters to a query builder
      *
      * @param QueryBuilder $qb
-     * @param array $filters
-     * @param array $fieldMappings
+     * @param array<array-key, mixed> $filters Numeric keys are skipped as malformed
+     * @param array<string, mixed> $fieldMappings
      * @param string $alias
-     * @return array Bindings for the query
+     * @return array<string, mixed> Bindings for the query
      */
     public function apply(
         QueryBuilder $qb,
@@ -108,7 +109,8 @@ class JsonApiFilterHandler implements FilterInterface
      * @param string $column
      * @param array $value
      * @param int $i
-     * @param array $bindings
+     * @param array<string, mixed> $value
+     * @param array<string, mixed> $bindings
      * @return void
      */
     private function applyComplexFilter(
@@ -173,7 +175,7 @@ class JsonApiFilterHandler implements FilterInterface
      * @param string $column
      * @param mixed $value
      * @param int $i
-     * @param array $bindings
+     * @param array<string, mixed> $bindings
      * @return void
      */
     private function applySimpleFilter(
@@ -192,7 +194,7 @@ class JsonApiFilterHandler implements FilterInterface
     /**
      * Get list of supported operators
      *
-     * @return array
+     * @return list<string>
      */
     public function getSupportedOperators(): array
     {
@@ -213,7 +215,7 @@ class JsonApiFilterHandler implements FilterInterface
     /**
      * Get description of the filter for documentation
      *
-     * @return array
+     * @return array<string, mixed>
      */
     public function getDescription(): array
     {

@@ -14,6 +14,7 @@ use PHPUnit\Framework\TestCase;
 class JsonApiQueryBuilderDocumentTest extends TestCase
 {
     private EntityManager $em;
+    /** @var array<string, mixed> */
     private array $config;
 
     protected function setUp(): void
@@ -99,6 +100,7 @@ class JsonApiQueryBuilderDocumentTest extends TestCase
     public function testShow(): void
     {
         $doc = $this->em->getRepository(Document::class)->findOneBy(['title' => 'Final Report']);
+        $this->assertNotNull($doc);
 
         $result = $this->makeQb()->operation('show')->withId((string) $doc->getId())->get();
 
@@ -124,6 +126,7 @@ class JsonApiQueryBuilderDocumentTest extends TestCase
     public function testUpdate(): void
     {
         $doc = $this->em->getRepository(Document::class)->findOneBy(['title' => 'Draft Proposal']);
+        $this->assertNotNull($doc);
 
         $result = $this->makeQb()
             ->withId((string) $doc->getId())
@@ -139,6 +142,7 @@ class JsonApiQueryBuilderDocumentTest extends TestCase
     public function testDelete(): void
     {
         $doc = $this->em->getRepository(Document::class)->findOneBy(['title' => 'Meeting Notes']);
+        $this->assertNotNull($doc);
         $id = (string) $doc->getId();
 
         $result = $this->makeQb()->withId($id)->operation('delete')->get();

@@ -17,10 +17,10 @@ interface FilterInterface
      * Apply the filter to a query builder
      *
      * @param QueryBuilder $qb The DBAL query builder
-     * @param array $params The filter parameters from the request
-     * @param array $fieldMappings Entity field to column mappings
+     * @param array<string, mixed> $params The filter parameters from the request
+     * @param array<string, mixed> $fieldMappings Entity field to column mappings
      * @param string $alias Table alias (default: 't0')
-     * @return array Bindings for the query parameters
+     * @return array<string, mixed> Bindings for the query parameters
      */
     public function apply(
         QueryBuilder $qb,
@@ -32,7 +32,7 @@ interface FilterInterface
     /**
      * Get description of the filter for documentation
      *
-     * @return array Filter description
+     * @return array<string, mixed> Filter description
      */
     public function getDescription(): array;
 

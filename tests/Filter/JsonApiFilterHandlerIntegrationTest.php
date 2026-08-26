@@ -17,6 +17,7 @@ use PHPUnit\Framework\TestCase;
 class JsonApiFilterHandlerIntegrationTest extends TestCase
 {
     private EntityManager $em;
+    /** @var array<string, mixed> */
     private array $config;
 
     protected function setUp(): void
@@ -248,6 +249,7 @@ class JsonApiFilterHandlerIntegrationTest extends TestCase
         $allResult = $queryBuilder->operation('index')->get();
         $allIds = array_map(fn($contact) => (int)$contact['id'], $allResult['data']);
         sort($allIds);
+        $this->assertNotEmpty($allIds);
         $maxId = max($allIds);
 
         // Test less than operator

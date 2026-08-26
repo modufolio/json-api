@@ -21,6 +21,7 @@ use PHPUnit\Framework\TestCase;
 class JsonApiQueryBuilderOneToManyTest extends TestCase
 {
     private EntityManager $em;
+    /** @var array<string, mixed> */
     private array $config;
     private Account $account;
 
@@ -81,6 +82,9 @@ class JsonApiQueryBuilderOneToManyTest extends TestCase
         TestDatabaseSetup::reset();
     }
 
+    /**
+     * @param class-string $class
+     */
     private function makeQb(string $class = Account::class): JsonApiQueryBuilder
     {
         return new JsonApiQueryBuilder(

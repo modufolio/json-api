@@ -6,6 +6,7 @@ namespace Modufolio\JsonApi\Document;
 
 class ErrorObject implements \JsonSerializable
 {
+    /** @var array<string, mixed> */
     private array $error = [];
 
     /**
@@ -106,6 +107,8 @@ class ErrorObject implements \JsonSerializable
 
     /**
      * @inheritdoc
+     *
+     * @return array<string, mixed>
      */
     public function jsonSerialize(): array
     {

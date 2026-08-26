@@ -21,6 +21,9 @@ readonly class ResponseFactory
 
     /**
      * Create a JSON response
+     *
+     * @param array<string, mixed>|string                    $data
+     * @param array<string, string|array<int, string>>       $headers
      */
     public function json(array|string $data, int $status = 200, array $headers = []): ResponseInterface
     {

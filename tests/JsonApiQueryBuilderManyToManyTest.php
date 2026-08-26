@@ -24,6 +24,7 @@ use PHPUnit\Framework\TestCase;
 class JsonApiQueryBuilderManyToManyTest extends TestCase
 {
     private EntityManager $em;
+    /** @var array<string, mixed> */
     private array $config;
 
     protected function setUp(): void
@@ -94,6 +95,9 @@ class JsonApiQueryBuilderManyToManyTest extends TestCase
         TestDatabaseSetup::reset();
     }
 
+    /**
+     * @param class-string $resourceClass
+     */
     private function builder(string $resourceClass = Contact::class): JsonApiQueryBuilder
     {
         return new JsonApiQueryBuilder(

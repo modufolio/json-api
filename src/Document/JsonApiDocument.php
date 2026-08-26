@@ -6,6 +6,7 @@ namespace Modufolio\JsonApi\Document;
 
 class JsonApiDocument implements \JsonSerializable
 {
+    /** @var array<string, mixed> */
     private array $document = [];
 
     public function __construct()
@@ -102,12 +103,17 @@ class JsonApiDocument implements \JsonSerializable
 
     /**
      * @inheritdoc
+     *
+     * @return array<string, mixed>
      */
     public function jsonSerialize(): array
     {
         return $this->document;
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     public function toArray(): array
     {
         return $this->document;

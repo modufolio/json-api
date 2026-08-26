@@ -1,8 +1,11 @@
 <?php
 
 return [
+    'includes' => [
+        __DIR__.'/vendor/phpstan/phpstan-phpunit/extension.neon',
+    ],
     'parameters' => [
-        'level' => 5,
+        'level' => 8,
         'paths' => [__DIR__.'/src', __DIR__.'/tests'],
         'excludePaths' => [
             'analyseAndScan' => [

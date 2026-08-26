@@ -64,7 +64,7 @@ class JsonApiPaginator
      * @param int $total Total number of items
      * @param int $page Current page
      * @param int $size Items per page
-     * @return array
+     * @return array<string, mixed>
      */
     public function getMetadata(int $total, int $page, int $size): array
     {
@@ -88,7 +88,7 @@ class JsonApiPaginator
      * @param int $total
      * @param int $page
      * @param int $size
-     * @return array
+     * @return array<string, mixed>
      */
     public function getPageInfo(int $total, int $page, int $size): array
     {

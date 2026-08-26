@@ -27,6 +27,7 @@ use PHPUnit\Framework\TestCase;
 class JsonApiQueryBuilderNestedIncludeTest extends TestCase
 {
     private EntityManager $em;
+    /** @var array<string, mixed> */
     private array $config;
 
     protected function setUp(): void
@@ -90,6 +91,9 @@ class JsonApiQueryBuilderNestedIncludeTest extends TestCase
         TestDatabaseSetup::reset();
     }
 
+    /**
+     * @param class-string $resourceClass
+     */
     private function builder(string $resourceClass = Account::class): JsonApiQueryBuilder
     {
         return new JsonApiQueryBuilder(

@@ -3,6 +3,7 @@
 namespace Modufolio\JsonApi\Tests;
 
 use Modufolio\JsonApi\JsonApiQueryBuilder;
+use Modufolio\JsonApi\Tests\Fixtures\Entity\Account;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadata;
@@ -13,7 +14,7 @@ class JsonApiQueryBuilderTest extends TestCase
     private function createQueryBuilder(): JsonApiQueryBuilder
     {
         $config = [
-            'App\\Entity\\Account' => [
+            Account::class => [
                 'resource_key' => 'account',
                 'fields' => ['id', 'name', 'created_at'],
                 'relationships' => ['organizations'],
@@ -44,7 +45,7 @@ class JsonApiQueryBuilderTest extends TestCase
         $metadata->method('getAssociationTargetClass')->willReturnCallback(fn ($field) => $metadata->associationMappings[$field]['targetEntity']);
         $em->method('getClassMetadata')->willReturn($metadata);
 
-        return new JsonApiQueryBuilder($config, $em, $conn, 'App\\Entity\\Account');
+        return new JsonApiQueryBuilder($config, $em, $conn, Account::class);
     }
 
     public function testBuildUriWithComplexQuery(): void

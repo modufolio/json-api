@@ -16,6 +16,7 @@ use PHPUnit\Framework\TestCase;
 class DateFilterIntegrationTest extends TestCase
 {
     private EntityManager $em;
+    /** @var array<string, mixed> */
     private array $config;
 
     protected function setUp(): void

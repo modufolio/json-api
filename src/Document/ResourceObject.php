@@ -9,9 +9,13 @@ class ResourceObject implements \JsonSerializable
     private string $type;
     private ?string $id = null;
     private ?string $lid = null;
+    /** @var array<string, mixed> */
     private array $attributes = [];
+    /** @var array<string, mixed> */
     private array $relationships = [];
+    /** @var array<string, mixed> */
     private array $links = [];
+    /** @var array<string, mixed> */
     private array $meta = [];
 
     public function __construct(string $type, ?string $id = null)
@@ -153,6 +157,8 @@ class ResourceObject implements \JsonSerializable
 
     /**
      * @inheritdoc
+     *
+     * @return array<string, mixed>
      */
     public function jsonSerialize(): array
     {

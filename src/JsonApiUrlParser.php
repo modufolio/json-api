@@ -9,6 +9,9 @@ use Psr\Http\Message\ServerRequestInterface;
 
 class JsonApiUrlParser
 {
+    /**
+     * @param array<string, mixed> $config
+     */
     public function __construct(
         private readonly array $config
     ) {
@@ -125,9 +128,9 @@ class JsonApiUrlParser
      * - filter[field][operator]=value
      * - filter[field]=value1&filter[field]=value2 (converted to 'in' operator)
      *
-     * @param array $filters Raw filter array from query params
-     * @param array $allowedFields List of allowed field names
-     * @return array Validated filter array
+     * @param array<array-key, mixed> $filters Raw filter array from query params
+     * @param list<string> $allowedFields List of allowed field names
+     * @return array<string, mixed> Validated filter array
      */
     private function parseFilters(array $filters, array $allowedFields): array
     {
@@ -170,8 +173,8 @@ class JsonApiUrlParser
     /**
      * Validate and clean operator arrays
      *
-     * @param array $operators Array of operators and values
-     * @return array Validated operators
+     * @param array<array-key, mixed> $operators Array of operators and values
+     * @return array<string, mixed> Validated operators
      */
     private function validateOperators(array $operators): array
     {

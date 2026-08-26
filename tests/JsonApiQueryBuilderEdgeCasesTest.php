@@ -16,6 +16,7 @@ use InvalidArgumentException;
 class JsonApiQueryBuilderEdgeCasesTest extends TestCase
 {
     private EntityManager $em;
+    /** @var array<string, mixed> */
     private array $config;
 
     protected function setUp(): void
@@ -87,6 +88,7 @@ class JsonApiQueryBuilderEdgeCasesTest extends TestCase
     public function testPaginationLimitsAndOffsets(): void
     {
         $account = $this->em->getRepository(Account::class)->findOneBy(['name' => 'Test Account']);
+        $this->assertNotNull($account);
 
         for ($i = 2; $i <= 10; $i++) {
             $contact = new Contact();
@@ -115,6 +117,7 @@ class JsonApiQueryBuilderEdgeCasesTest extends TestCase
     public function testSortingMultipleFields(): void
     {
         $account = $this->em->getRepository(Account::class)->findOneBy(['name' => 'Test Account']);
+        $this->assertNotNull($account);
 
         $contact2 = new Contact();
         $contact2->setFirstName('Alice');
@@ -150,6 +153,7 @@ class JsonApiQueryBuilderEdgeCasesTest extends TestCase
     public function testComplexFilteringScenarios(): void
     {
         $account = $this->em->getRepository(Account::class)->findOneBy(['name' => 'Test Account']);
+        $this->assertNotNull($account);
 
         $contact2 = new Contact();
         $contact2->setFirstName('Jane');
@@ -235,6 +239,7 @@ class JsonApiQueryBuilderEdgeCasesTest extends TestCase
     public function testShowOperationWithExistingData(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['firstName' => 'John']);
+        $this->assertNotNull($contact);
         $contactId = $contact->getId();
 
         $queryBuilder = new JsonApiQueryBuilder(

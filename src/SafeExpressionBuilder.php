@@ -86,6 +86,8 @@ class SafeExpressionBuilder
 
     /**
      * Create a safe IN comparison with value count limits
+     *
+     * @param array<int, string> $values
      */
     public function in(string $field, array $values): string
     {
@@ -102,6 +104,8 @@ class SafeExpressionBuilder
 
     /**
      * Create a safe NOT IN comparison with value count limits
+     *
+     * @param array<int, string> $values
      */
     public function notIn(string $field, array $values): string
     {

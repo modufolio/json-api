@@ -19,6 +19,7 @@ use PHPUnit\Framework\TestCase;
 class JsonApiQueryBuilderAdvancedTest extends TestCase
 {
     private EntityManager $em;
+    /** @var array<string, mixed> */
     private array $config;
 
     protected function setUp(): void
@@ -77,6 +78,9 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
         TestDatabaseSetup::reset();
     }
 
+    /**
+     * @param class-string $class
+     */
     private function makeQb(string $class = Contact::class): JsonApiQueryBuilder
     {
         return new JsonApiQueryBuilder(
@@ -147,6 +151,7 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
     public function testShow(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['email' => 'john@test.com']);
+        $this->assertNotNull($contact);
 
         $result = $this->makeQb()->operation('show')->withId((string) $contact->getId())->get();
 
@@ -187,6 +192,7 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
     public function testUpdate(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['email' => 'john@test.com']);
+        $this->assertNotNull($contact);
 
         $result = $this->makeQb()
             ->withId((string) $contact->getId())
@@ -210,6 +216,7 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
     public function testDelete(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['email' => 'john@test.com']);
+        $this->assertNotNull($contact);
         $id = (string) $contact->getId();
 
         $result = $this->makeQb()->withId($id)->operation('delete')->get();
@@ -294,6 +301,7 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
     public function testDebugShow(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['email' => 'john@test.com']);
+        $this->assertNotNull($contact);
 
         $result = $this->makeQb()->debug()->operation('show')->withId((string) $contact->getId())->get();
 
@@ -315,6 +323,7 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
     public function testDebugUpdate(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['email' => 'john@test.com']);
+        $this->assertNotNull($contact);
 
         $result = $this->makeQb()->debug()
             ->withId((string) $contact->getId())
@@ -329,6 +338,7 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
     public function testDebugDelete(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['email' => 'john@test.com']);
+        $this->assertNotNull($contact);
 
         $result = $this->makeQb()->debug()->withId((string) $contact->getId())->operation('delete')->get();
 
@@ -431,6 +441,7 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
     public function testApplyParamsId(): void
     {
         $contact = $this->em->getRepository(Contact::class)->findOneBy(['email' => 'john@test.com']);
+        $this->assertNotNull($contact);
 
         $params = new JsonApiQueryParams();
         $params->id = (string) $contact->getId();

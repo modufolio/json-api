@@ -9,6 +9,7 @@ class ResourceIdentifierObject implements \JsonSerializable
     private string $type;
     private ?string $id;
     private ?string $lid;
+    /** @var array<string, mixed> */
     private array $meta = [];
 
     /**
@@ -41,7 +42,7 @@ class ResourceIdentifierObject implements \JsonSerializable
     /**
      * Set meta information
      *
-     * @param array $meta
+     * @param array<string, mixed> $meta
      * @return self
      */
     public function setMeta(array $meta): self
@@ -52,6 +53,8 @@ class ResourceIdentifierObject implements \JsonSerializable
 
     /**
      * @inheritdoc
+     *
+     * @return array<string, mixed>
      */
     public function jsonSerialize(): array
     {

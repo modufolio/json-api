@@ -17,24 +17,36 @@ final class JsonApiQueryBuilder
 {
     private QueryBuilder $qb;
     private ExpressionBuilder $expr;
+    /** @var ClassMetadata<object> */
     private ClassMetadata $meta;
+    /** @var array<string, mixed> */
     private readonly array $config;
+    /** @var list<string> */
     private array $fields = [];
     /**
      * Sparse fieldsets as supplied, keyed by resource type. `$fields` holds
      * only the root resource's entry; the rest is kept here so an included
      * resource can be narrowed too.
+     *
+     * @var array<string, list<string>>
      */
     private array $sparseFields = [];
+    /** @var array<array-key, mixed> */
     private array $filters = [];
+    /** @var array<array-key, string> */
     private array $sort = [];
+    /** @var list<string> */
     private array $includes = [];
+    /** @var array<string, mixed> */
     private array $params = [];
+    /** @var array<string, int|null> */
     private array $page = ['number' => 1, 'size' => 25];
     private ?string $groupBy = null;
+    /** @var array<string, mixed>|null */
     private ?array $having = null;
     private string $operation = 'index';
     public ?string $id = null;
+    /** @var array<string, mixed> */
     private array $data = [];
     private bool $debug = false;
     private bool $withTotalCount = false;
@@ -46,6 +58,10 @@ final class JsonApiQueryBuilder
     // Security: Maximum depth for nested filter operations to prevent DoS
     private const MAX_FILTER_DEPTH = 5;
 
+    /**
+     * @param array<string, mixed>  $config
+     * @param class-string          $resourceClass
+     */
     public function __construct(
         array $config,
         private EntityManagerInterface $em,
@@ -103,6 +119,9 @@ final class JsonApiQueryBuilder
         return $this;
     }
 
+    /**
+     * @param array<array-key, mixed> $fields
+     */
     public function fields(array $fields): self
     {
         // Handle sparse fieldsets format: ['resourceType' => ['field1', 'field2']]
@@ -118,14 +137,18 @@ final class JsonApiQueryBuilder
             $resourceKey = $this->config[$this->resourceClass]['resource_key'] ?? null;
             if ($resourceKey && isset($fields[$resourceKey])) {
                 $fieldsToValidate = $fields[$resourceKey];
-                $this->fields = $fields[$resourceKey];
+                /** @var list<string> $selected */
+                $selected = array_values($fields[$resourceKey]);
+                $this->fields = $selected;
             } else {
                 // No fields specified for this resource, use all fields
                 $fieldsToValidate = [];
                 $this->fields = [];
             }
         } else {
-            $this->fields = $fields;
+            /** @var list<string> $selected */
+            $selected = array_values($fields);
+            $this->fields = $selected;
         }
 
         if (!empty($fieldsToValidate)) {
@@ -135,6 +158,9 @@ final class JsonApiQueryBuilder
         return $this;
     }
 
+    /**
+     * @param array<array-key, mixed> $filters
+     */
     public function filter(array $filters): self
     {
         $this->validateFields(array_keys($filters));
@@ -142,6 +168,9 @@ final class JsonApiQueryBuilder
         return $this;
     }
 
+    /**
+     * @param array<array-key, string> $sort
+     */
     public function sort(array $sort): self
     {
         // Handle both formats: ['field1', '-field2'] and ['field1' => 'ASC', 'field2' => 'DESC']
@@ -159,6 +188,9 @@ final class JsonApiQueryBuilder
         return $this;
     }
 
+    /**
+     * @param list<string> $includes
+     */
     public function include(array $includes): self
     {
         foreach ($includes as $path) {
@@ -203,6 +235,9 @@ final class JsonApiQueryBuilder
         return $this;
     }
 
+    /**
+     * @param array<string, mixed> $bindings
+     */
     public function having(string $condition, array $bindings = []): self
     {
         // Security: Validate that condition doesn't contain dangerous SQL
@@ -234,6 +269,9 @@ final class JsonApiQueryBuilder
         return $this;
     }
 
+    /**
+     * @param array<string, mixed> $data
+     */
     public function withData(array $data): self
     {
         $this->data = $data;
@@ -305,6 +343,9 @@ final class JsonApiQueryBuilder
     // Execution Methods
     // ────────────────────────────────────────────────────────────────────────────────
 
+    /**
+     * @return array<array-key, mixed>
+     */
     public function get(): array
     {
         $this->resolveIdentifier();
@@ -322,6 +363,9 @@ final class JsonApiQueryBuilder
         return $result;
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function executeIndex(): array
     {
         $this->buildQuery();
@@ -409,6 +453,9 @@ final class JsonApiQueryBuilder
         $this->id = $resolved === false ? '-1' : (string) $resolved;
     }
 
+    /**
+     * @return array<array-key, mixed>
+     */
     private function executeShow(): array
     {
         if (!$this->id) {
@@ -457,6 +504,9 @@ final class JsonApiQueryBuilder
         return [0 => $item, 'included' => $included];
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function executeCreate(): array
     {
         $allowedFields = $this->getAllowedFields();
@@ -484,9 +534,12 @@ final class JsonApiQueryBuilder
 
         $this->conn->insert($this->meta->getTableName(), $mappedData);
         $id = $this->conn->lastInsertId();
-        return $this->operation('show')->withId($id)->get();
+        return $this->operation('show')->withId((string) $id)->get();
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function executeUpdate(): array
     {
         if (!$this->id) {
@@ -517,6 +570,9 @@ final class JsonApiQueryBuilder
         return $this->operation('show')->withId($this->id)->get();
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function executeDelete(): array
     {
         if (!$this->id) {
@@ -584,6 +640,9 @@ final class JsonApiQueryBuilder
         }
     }
 
+    /**
+     * @return array{query: mixed, bindings: array<string, mixed>}
+     */
     private function buildSelect(): array
     {
         $select = [];
@@ -616,6 +675,9 @@ final class JsonApiQueryBuilder
         ];
     }
 
+    /**
+     * @return array{query: mixed, bindings: array<string, mixed>}
+     */
     private function buildFilters(): array
     {
         // If FilterRegistry is available and has filters for this resource, use it
@@ -648,6 +710,9 @@ final class JsonApiQueryBuilder
         ];
     }
 
+    /**
+     * @param array<string, mixed> $bindings
+     */
     private function applyFilter(string $column, mixed $value, array &$bindings): void
     {
         // Security: Validate column name before using it
@@ -720,6 +785,9 @@ final class JsonApiQueryBuilder
         }
     }
 
+    /**
+     * @return array{query: mixed, bindings: array<string, mixed>}
+     */
     private function buildSort(): array
     {
         $sortParts = [];
@@ -749,6 +817,9 @@ final class JsonApiQueryBuilder
         ];
     }
 
+    /**
+     * @return array{query: mixed, bindings: array<string, mixed>}
+     */
     private function buildJoins(): array
     {
         $joins = [];
@@ -892,6 +963,8 @@ final class JsonApiQueryBuilder
      * The fields to read from an included resource: its configured allow-list,
      * narrowed by a sparse fieldset for that type when one was supplied.
      *
+     * @param ClassMetadata<object> $targetMeta
+     *
      * @return array<int, string>
      */
     private function targetFields(string $targetClass, ClassMetadata $targetMeta): array
@@ -912,6 +985,9 @@ final class JsonApiQueryBuilder
         return array_values($allowed);
     }
 
+    /**
+     * @return array{query: mixed, bindings: array<string, mixed>}
+     */
     private function buildGroup(): array
     {
         if (!$this->groupBy) {
@@ -923,6 +999,9 @@ final class JsonApiQueryBuilder
         ];
     }
 
+    /**
+     * @return array{query: mixed, bindings: array<string, mixed>}
+     */
     private function buildHaving(): array
     {
         if (!$this->having) {
@@ -934,6 +1013,9 @@ final class JsonApiQueryBuilder
         ];
     }
 
+    /**
+     * @return array{query: mixed, bindings: array<string, mixed>}
+     */
     private function buildPage(): array
     {
         // A null size means pagination was explicitly switched off; returning
@@ -1002,6 +1084,11 @@ final class JsonApiQueryBuilder
      *     'linkage'  => [ relName => [ parentId => [ ['type'=>..,'id'=>..], … ] ] ],
      *     'included' => [ relName => [ parentId => [ fullItem, … ] ] ],  // only for ?include=rel
      *   ]
+     */
+    /**
+     * @param array<array-key, int|string|null> $parentIds
+     *
+     * @return array<string, mixed>
      */
     private function fetchToManyIncludes(array $parentIds): array
     {
@@ -1161,7 +1248,7 @@ final class JsonApiQueryBuilder
             // Build IN clause with named parameters
             $placeholders = [];
             $bindings     = [];
-            foreach (array_values($parentIds) as $i => $pid) {
+            foreach ($parentIds as $i => $pid) {
                 $pname          = 'tm_' . $i;
                 $placeholders[] = ':' . $pname;
                 $bindings[$pname] = $pid;
@@ -1241,6 +1328,11 @@ final class JsonApiQueryBuilder
      * Like transformRowToJsonApi() but for a related (included) entity,
      * using the target entity's ClassMetadata for relationship resolution.
      * Returns an item with 'type' included so the caller can build JSON:API identifiers.
+     *
+     * @param array<string, mixed>  $row
+     * @param ClassMetadata<object> $targetMeta
+     *
+     * @return array<string, mixed>
      */
     private function transformIncludedRowToJsonApi(array $row, ClassMetadata $targetMeta, string $resourceKey): array
     {
@@ -1284,6 +1376,11 @@ final class JsonApiQueryBuilder
         return $result;
     }
 
+    /**
+     * @param array<string, mixed> $row
+     *
+     * @return array<string, mixed>
+     */
     private function transformRowToJsonApi(array $row): array
     {
         $id = null;
@@ -1329,21 +1426,29 @@ final class JsonApiQueryBuilder
     // Internal Helpers
     // ────────────────────────────────────────────────────────────────────────────────
 
+    /**
+     * @return list<string>
+     */
     private function getAllowedFields(): array
     {
         return $this->config[$this->resourceClass]['fields'] ?? $this->meta->getFieldNames();
     }
 
+    /**
+     * @return list<string>
+     */
     private function getAllowedRelationships(): array
     {
         $relationships = $this->config[$this->resourceClass]['relationships'] ?? array_keys($this->meta->getAssociationNames());
 
         // Handle both array formats: ['rel1', 'rel2'] and ['rel1' => [...], 'rel2' => [...]]
         if (!empty($relationships) && is_array(reset($relationships))) {
-            return array_keys($relationships);
+            $relationships = array_keys($relationships);
         }
 
-        return $relationships;
+        // A numeric-looking relationship name arrives as an int key; the
+        // metadata lookups downstream take a string.
+        return array_map(strval(...), array_values($relationships));
     }
 
     private function getColumnName(string $field): string
@@ -1351,6 +1456,11 @@ final class JsonApiQueryBuilder
         return $this->meta->fieldMappings[$field]['columnName'] ?? $field;
     }
 
+    /**
+     * @param array<string, mixed> $data
+     *
+     * @return array<string, mixed>
+     */
     private function mapFieldsToColumns(array $data): array
     {
         $mappedData = [];
@@ -1361,6 +1471,9 @@ final class JsonApiQueryBuilder
         return $mappedData;
     }
 
+    /**
+     * @param array<array-key, mixed> $fields
+     */
     private function validateFields(array $fields): void
     {
         $allowedFields = $this->getAllowedFields();
@@ -1378,6 +1491,9 @@ final class JsonApiQueryBuilder
         }
     }
 
+    /**
+     * @param array<string, mixed> $localBindings
+     */
     private function newParamName(array $localBindings = []): string
     {
         return 'p' . (count($this->params) + count($localBindings));

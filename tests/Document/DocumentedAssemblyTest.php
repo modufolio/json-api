@@ -25,6 +25,7 @@ use PHPUnit\Framework\TestCase;
 class DocumentedAssemblyTest extends TestCase
 {
     private EntityManager $em;
+    /** @var array<string, mixed> */
     private array $config;
 
     protected function setUp(): void
@@ -70,6 +71,8 @@ class DocumentedAssemblyTest extends TestCase
     }
 
     /**
+     * @param array<string, mixed> $result
+     *
      * @return array<string, mixed>
      */
     private function assemble(array $result): array
@@ -94,9 +97,12 @@ class DocumentedAssemblyTest extends TestCase
 
         $document->setMeta(['total' => $result['total'] ?? 0]);
 
-        return json_decode(json_encode($document->toArray()), true);
+        return json_decode(json_encode($document->toArray(), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function queryResult(bool $include): array
     {
         $builder = new JsonApiQueryBuilder(

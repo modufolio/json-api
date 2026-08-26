@@ -12,16 +12,19 @@ class Str
     /**
      * The cache of snake-cased words.
      */
+    /** @var array<string, string> */
     protected static array $snakeCache = [];
 
     /**
      * The cache of camel-cased words.
      */
+    /** @var array<string, string> */
     protected static array $camelCache = [];
 
     /**
      * The cache of studly-cased words.
      */
+    /** @var array<string, string> */
     protected static array $studlyCache = [];
 
     /**
@@ -52,8 +55,8 @@ class Str
         }
 
         if (!ctype_lower($value)) {
-            $value = preg_replace('/\s+/u', '', ucwords($value));
-            $value = static::lower(preg_replace('/(.)(?=[A-Z])/u', '$1' . $delimiter, $value));
+            $value = preg_replace('/\s+/u', '', ucwords($value)) ?? $value;
+            $value = static::lower(preg_replace('/(.)(?=[A-Z])/u', '$1' . $delimiter, $value) ?? $value);
         }
 
         return static::$snakeCache[$key] = $value;

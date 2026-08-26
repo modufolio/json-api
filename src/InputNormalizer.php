@@ -38,10 +38,10 @@ class InputNormalizer
     /**
      * Normalize input data based on content type
      *
-     * @param array $payload The decoded request payload
+     * @param array<string, mixed> $payload The decoded request payload
      * @param string $contentType The request Content-Type header
      * @param string $expectedResourceType The expected JSON:API resource type (for JSON:API format)
-     * @return array Normalized data array with attributes and relationships
+     * @return array<string, mixed> Normalized data array with attributes and relationships
      * @throws InvalidArgumentException If the payload is invalid
      */
     public function normalize(array $payload, string $contentType, string $expectedResourceType): array
@@ -84,6 +84,10 @@ class InputNormalizer
      *   "attributes": {"name": "Product Name", "price": 99.99},
      *   "relationships": {"brand": 5}
      * }
+     *
+     * @param array<string, mixed> $payload
+     *
+     * @return array<string, mixed>
      */
     private function normalizeJsonApi(array $payload, string $expectedResourceType): array
     {
@@ -106,6 +110,10 @@ class InputNormalizer
      *   "attributes": {"name": "Product Name", "price": 99.99},
      *   "relationships": {"brand": 5, "categories": [1, 2, 3]}
      * }
+     *
+     * @param array<string, mixed> $payload
+     *
+     * @return array<string, mixed>
      */
     private function normalizeJson(array $payload): array
     {
@@ -141,6 +149,10 @@ class InputNormalizer
      *
      * This is a convenience method that combines normalized data
      * into a single array ready for entity population
+     *
+     * @param array<string, mixed> $normalizedData
+     *
+     * @return array<string, mixed>
      */
     public function mergeData(array $normalizedData): array
     {
@@ -152,6 +164,8 @@ class InputNormalizer
 
     /**
      * Detect if the input is JSON:API format
+     *
+     * @param array<string, mixed> $payload
      */
     public function isJsonApiFormat(array $payload): bool
     {

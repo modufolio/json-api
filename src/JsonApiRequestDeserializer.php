@@ -20,10 +20,10 @@ class JsonApiRequestDeserializer
     /**
      * Deserialize a JSON:API request payload
      *
-     * @param array $payload The decoded JSON payload
+     * @param array<string, mixed> $payload The decoded JSON payload
      * @param string $expectedType The expected resource type
      * @param bool $requireType Whether to require and validate the type field
-     * @return array ['attributes' => [...], 'relationships' => [...]]
+     * @return array<string, mixed> ['attributes' => [...], 'relationships' => [...]]
      * @throws InvalidArgumentException If the payload is invalid
      */
     public function deserialize(array $payload, string $expectedType, bool $requireType = true): array
@@ -86,9 +86,9 @@ class JsonApiRequestDeserializer
      * - To-many: {"data": [{"type": "tag", "id": "1"}, {"type": "tag", "id": "2"}]} => [1, 2]
      * - Null: {"data": null} => null
      *
-     * @param array $relationshipData The relationship object
+     * @param array<string, mixed> $relationshipData The relationship object
      * @param string $relationshipName The relationship name (for error messages)
-     * @return int|array|null The normalized relationship ID(s)
+     * @return int|array<int, int|string>|null The normalized relationship ID(s)
      * @throws InvalidArgumentException If the relationship format is invalid
      */
     private function normalizeRelationship(array $relationshipData, string $relationshipName): int|array|null
@@ -180,9 +180,9 @@ class JsonApiRequestDeserializer
      * This is a convenience method that combines attributes and relationships
      * into a single array that can be passed to populateEntity()
      *
-     * @param array $attributes The attributes array
-     * @param array $relationships The relationships array (normalized IDs)
-     * @return array The merged data
+     * @param array<string, mixed> $attributes The attributes array
+     * @param array<string, mixed> $relationships The relationships array (normalized IDs)
+     * @return array<string, mixed> The merged data
      */
     public function mergeData(array $attributes, array $relationships): array
     {

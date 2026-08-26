@@ -11,6 +11,15 @@ namespace Modufolio\JsonApi;
  */
 class JsonApiQueryParams
 {
+    /**
+     * @param list<string>         $fields
+     * @param array<string, mixed> $filter
+     * @param list<string>         $include
+     * @param list<string>         $sort
+     * @param array<string, mixed> $page
+     * @param list<string>         $group
+     * @param array<string, mixed> $having
+     */
     public function __construct(
         public array $fields = [],
         public array $filter = [],

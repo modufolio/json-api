@@ -101,7 +101,7 @@ class JsonApiIntegrationTest extends TestCase
         $request = $request->withHeader('Content-Type', 'application/vnd.api+json');
         $request = $request->withHeader('Accept', 'application/vnd.api+json');
 
-        $body = Stream::create(json_encode($contactData));
+        $body = Stream::create((string) json_encode($contactData));
         $request = $request->withBody($body);
 
         $response = $this->controller->handle($request, Contact::class, 'create');
@@ -165,7 +165,7 @@ class JsonApiIntegrationTest extends TestCase
         $request = $request->withHeader('Content-Type', 'application/vnd.api+json');
         $request = $request->withHeader('Accept', 'application/vnd.api+json');
 
-        $body = Stream::create(json_encode($updateData));
+        $body = Stream::create((string) json_encode($updateData));
         $request = $request->withBody($body);
 
         $response = $this->controller->handle($request, Contact::class, 'update', $contact->getId());
@@ -199,6 +199,7 @@ class JsonApiIntegrationTest extends TestCase
         // Verify contact was soft deleted
         $this->em->clear();
         $deletedContact = $this->em->getRepository(Contact::class)->find($contactId);
+        $this->assertNotNull($deletedContact);
         $this->assertNotNull($deletedContact->getDeletedAt());
     }
 

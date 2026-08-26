@@ -23,6 +23,7 @@ use PHPUnit\Framework\TestCase;
 class JsonApiQueryBuilderJoinFieldsTest extends TestCase
 {
     private EntityManager $em;
+    /** @var array<string, mixed> */
     private array $config;
 
     protected function setUp(): void
