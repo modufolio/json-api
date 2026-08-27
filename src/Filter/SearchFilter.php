@@ -53,21 +53,29 @@ class SearchFilter implements FilterInterface
             $column = $fieldMappings[$property]['columnName'] ?? $property;
             $paramName = "search_{$property}_{$paramCounter}";
 
+            // Folded to lower case on both sides rather than left to the
+            // column's collation. MySQL and SQLite match case-insensitively by
+            // default and PostgreSQL does not, so the same search returns
+            // different rows per engine otherwise — and which it does is an
+            // accident of the schema, not a choice anyone made. A functional
+            // index on LOWER(column) restores index usage where it matters.
+            $lowered = "LOWER($alias.$column)";
+
             match ($strategy) {
                 SearchStrategy::PARTIAL => [
-                    $qb->andWhere("$alias.$column LIKE :$paramName"),
+                    $qb->andWhere("$lowered LIKE LOWER(:$paramName)"),
                     $bindings[$paramName] = "%{$value}%"
                 ],
                 SearchStrategy::START => [
-                    $qb->andWhere("$alias.$column LIKE :$paramName"),
+                    $qb->andWhere("$lowered LIKE LOWER(:$paramName)"),
                     $bindings[$paramName] = "{$value}%"
                 ],
                 SearchStrategy::END => [
-                    $qb->andWhere("$alias.$column LIKE :$paramName"),
+                    $qb->andWhere("$lowered LIKE LOWER(:$paramName)"),
                     $bindings[$paramName] = "%{$value}"
                 ],
                 SearchStrategy::EXACT => [
-                    $qb->andWhere("$alias.$column = :$paramName"),
+                    $qb->andWhere("$lowered = LOWER(:$paramName)"),
                     $bindings[$paramName] = $value
                 ],
                 default => throw new \InvalidArgumentException(

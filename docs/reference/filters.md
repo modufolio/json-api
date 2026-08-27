@@ -101,3 +101,52 @@ new DateFilter(['publishedAt', 'createdAt']);
 ```
 
 See the [Filtering guide](../filtering.md) for how these compose, request formats, and writing a custom filter.
+
+## RangeFilter
+
+Bounds an orderable field.
+
+```php
+public function __construct(array $properties = [])   // list of field names
+public function apply(QueryBuilder $qb, array $params, array $fieldMappings, string $alias = 't0'): array
+public function getDescription(): array
+public function supports(string $field): bool
+```
+
+Operators: `gt`, `gte`, `lt`, `lte`, and `between` (`from..to`, inclusive). A `between` without both bounds raises `QueryParamMalformed`.
+
+```php
+new RangeFilter(['price']);
+// value shape: ['price' => ['gte' => 10, 'lt' => 100]]
+//              ['price' => ['between' => '10..100']]
+```
+
+## ExistsFilter
+
+Selects rows by whether a nullable field carries a value — `IS NULL` / `IS NOT NULL`, which no comparison operator can express.
+
+```php
+public function __construct(array $properties = [])   // list of nullable field names
+```
+
+Operator: `exists`, taking `true`/`1`/`yes`/`on` or `false`/`0`/`no`/`off`. Anything else raises `QueryParamMalformed`. Binds no parameters.
+
+```php
+new ExistsFilter(['deletedAt']);
+// value shape: ['deletedAt' => ['exists' => 'false']]
+```
+
+## BooleanFilter
+
+Matches a boolean column, binding the value as `ParameterType::BOOLEAN` so each engine's representation (`boolean`, `TINYINT`, `BIT`, integer) is handled by its own driver.
+
+```php
+public function __construct(array $properties = [])   // list of boolean field names
+```
+
+Takes the plain form only — an operator map falls through to the catch-all handler. Unrecognised values raise `QueryParamMalformed`.
+
+```php
+new BooleanFilter(['active']);
+// value shape: ['active' => 'true']
+```

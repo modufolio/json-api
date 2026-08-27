@@ -98,6 +98,75 @@ It recognises four operators — `after` (`>=`), `before` (`<=`), `strictly_afte
 
 These operators survive request parsing: `JsonApiUrlParser` whitelists `after`, `before`, `strictly_after`, and `strictly_before` alongside the standard set, so `?filter[publishedAt][after]=…` reaches `DateFilter` and filters end-to-end. The field must be in the resource's `fields` allow-list, and `DateFilter` must be registered for the resource (either directly or via `buildFilterRegistry()`, which scopes the field off the catch-all for you — see [Composing filters](#composing-filters--the-catch-all-and-field-specific-filters)).
 
+## Case sensitivity
+
+`SearchFilter` is case-insensitive on every engine, for all four strategies. It compares `LOWER(column)` against `LOWER(:value)` rather than leaving the question to the column's collation — MySQL and SQLite fold case by default and PostgreSQL does not, so the same search would otherwise return different rows depending on where the application is deployed, decided by a schema property nobody chose.
+
+Where the extra scan matters, a functional index restores index usage:
+
+```sql
+CREATE INDEX contacts_name_lower ON contacts (LOWER(name));
+```
+
+## RangeFilter
+
+Bounds an orderable field. The catch-all handler already offers `gt`/`gte`/`lt`/`lte` on every field; `RangeFilter` exists to restrict those to an explicit list and to add `between`, which cannot be written as a single comparison:
+
+```php
+use Modufolio\JsonApi\Filter\RangeFilter;
+
+$range = new RangeFilter(['price', 'weight']);
+```
+
+```php
+// filter[price][gte]=10 & filter[price][lt]=100
+['price' => ['gte' => 10, 'lt' => 100]]
+
+// filter[price][between]=10..100  — inclusive on both ends
+['price' => ['between' => '10..100']]
+```
+
+`between` takes both bounds written `from..to`; a value with only one bound is a `QueryParamMalformed` (400) rather than a silently open range — use `gte` or `lte` when that is what you meant. It compiles to two comparisons rather than SQL `BETWEEN`, whose handling of a reversed pair differs between engines.
+
+## ExistsFilter
+
+Selects rows by whether a nullable field carries a value. This cannot be expressed through the comparison operators at all: `= NULL` matches nothing in every engine, so a null test needs its own operator.
+
+```php
+use Modufolio\JsonApi\Filter\ExistsFilter;
+
+$exists = new ExistsFilter(['deletedAt', 'phone']);
+```
+
+```php
+// filter[deletedAt][exists]=false  — not soft-deleted
+['deletedAt' => ['exists' => 'false']]
+
+// filter[phone][exists]=true       — has a phone number
+['phone' => ['exists' => 'true']]
+```
+
+`true`, `1`, `yes` and `on` all read as true; `false`, `0`, `no`, `off` and the empty string as false. Anything else is a `QueryParamMalformed` — a typo must not quietly return the complementary set of rows.
+
+## BooleanFilter
+
+Matches a boolean column against a value from the query string, which is always a string:
+
+```php
+use Modufolio\JsonApi\Filter\BooleanFilter;
+
+$booleans = new BooleanFilter(['active', 'published']);
+```
+
+```php
+// filter[active]=true
+['active' => 'true']
+```
+
+The engines disagree about what a boolean is — PostgreSQL a real `boolean`, MySQL a `TINYINT`, SQL Server a `BIT`, SQLite an integer — so the value is normalised to a PHP bool and bound as `ParameterType::BOOLEAN`, letting each driver render its own representation. This is why the filter binds its own parameter rather than returning it: the generic binding pass sets values without a type, and an untyped `false` is sent as an empty string by pdo_sqlite, matching no row and reporting success.
+
+The operator-map form (`filter[active][eq]=true`) belongs to the catch-all handler; this filter answers the plain form only.
+
 ## Registering filters
 
 `FilterRegistry::register()` takes the **resource class first**, then the filter. Register as many filters per class as you need:

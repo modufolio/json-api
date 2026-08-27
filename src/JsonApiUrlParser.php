@@ -184,6 +184,10 @@ class JsonApiUrlParser
             // DateFilter range operators — kept so filter[field][after]=… survives parsing
             // and reaches DateFilter (which only understands these, not gte/lte).
             'after', 'before', 'strictly_after', 'strictly_before',
+            // RangeFilter and ExistsFilter. Without these the filters work when
+            // a builder is driven by hand but silently do nothing behind a
+            // parsed request, which is the failure that is hardest to notice.
+            'between', 'exists',
         ];
 
         foreach ($operators as $operator => $value) {
