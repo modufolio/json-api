@@ -68,6 +68,12 @@ class JsonApiPaginator
      */
     public function getMetadata(int $total, int $page, int $size): array
     {
+        // A size of zero would be a division by zero, and a negative one a
+        // nonsensical page count. The URL parser already clamps what it
+        // parses; this guards the callers that build metadata by hand.
+        $size = max(1, $size);
+        $page = max(1, $page);
+
         $lastPage = (int)ceil($total / $size);
         $from = $total > 0 ? (($page - 1) * $size) + 1 : 0;
         $to = min($page * $size, $total);
@@ -92,6 +98,10 @@ class JsonApiPaginator
      */
     public function getPageInfo(int $total, int $page, int $size): array
     {
+        // See getMetadata(): the same guard, for the same reason.
+        $size = max(1, $size);
+        $page = max(1, $page);
+
         $lastPage = (int)ceil($total / $size);
 
         return [

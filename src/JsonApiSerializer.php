@@ -63,6 +63,11 @@ class JsonApiSerializer
         array $included = [],
         ?string $baseUrl = null
     ): array {
+        // Guard the arithmetic before it divides: a caller passing a size of
+        // zero would otherwise get a DivisionByZeroError out of a serializer.
+        $perPage = max(1, $perPage);
+        $currentPage = max(1, $currentPage);
+
         $lastPage = (int)ceil($total / $perPage);
         $from = $total > 0 ? (($currentPage - 1) * $perPage) + 1 : 0;
         $to = min($currentPage * $perPage, $total);
@@ -115,6 +120,11 @@ class JsonApiSerializer
             $separator = str_contains($baseUrl, '?') ? '&' : '?';
             return "{$baseUrl}{$separator}page[number]={$page}&page[size]={$perPage}";
         };
+
+        // With no records at all the last page is still page 1: emitting
+        // page[number]=0 would hand the client a URL this library's own parser
+        // clamps back to 1.
+        $lastPage = max(1, $lastPage);
 
         return [
             'first' => $buildUrl(1),
