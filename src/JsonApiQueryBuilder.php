@@ -11,6 +11,10 @@ use Doctrine\DBAL\Query\QueryBuilder;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadata;
 use InvalidArgumentException;
+use Modufolio\JsonApi\Exception\FieldUnrecognized;
+use Modufolio\JsonApi\Exception\InclusionUnrecognized;
+use Modufolio\JsonApi\Exception\QueryParamMalformed;
+use Modufolio\JsonApi\Platform\SqlDialect;
 use Modufolio\JsonApi\Filter\FilterRegistry;
 
 final class JsonApiQueryBuilder
@@ -336,7 +340,17 @@ final class JsonApiQueryBuilder
             $qb->setParameter($key, $value);
         }
 
-        return $qb->executeQuery()->fetchOne() ?? 0;
+        $value = $qb->executeQuery()->fetchOne();
+
+        // PostgreSQL types AVG() and SUM() as `numeric`, which PDO hands back
+        // as a string rather than a number — the other engines return an int
+        // or a float. `+ 0` normalises without deciding which of the two it
+        // should be: a COUNT stays an int, an AVG becomes a float.
+        if ($value === null || $value === false || !is_numeric($value)) {
+            return 0;
+        }
+
+        return $value + 0;
     }
 
     // ────────────────────────────────────────────────────────────────────────────────
@@ -368,6 +382,7 @@ final class JsonApiQueryBuilder
      */
     private function executeIndex(): array
     {
+        $this->guardAgainstGrouping();
         $this->buildQuery();
         if ($this->debug) {
             $qb = clone $this->qb;
@@ -426,6 +441,35 @@ final class JsonApiQueryBuilder
     }
 
     /**
+     * Grouping cannot produce resources, so it is refused where resources are
+     * what the operation returns.
+     *
+     * A grouped query selects one row per group, and that row has no `id` —
+     * JSON:API requires one on every resource object, so the document could
+     * not be valid whatever the engine did. What the builder emitted instead
+     * was `SELECT <every field> … GROUP BY <one field>`, which is invalid SQL:
+     * PostgreSQL and MySQL (with its default ONLY_FULL_GROUP_BY) both reject
+     * it, and only SQLite's leniency made the feature appear to work.
+     *
+     * `group()` and `having()` remain available behind the aggregate helpers —
+     * count(), sum(), avg(), min(), max() — which replace the SELECT with the
+     * aggregate and so group legitimately.
+     */
+    private function guardAgainstGrouping(): void
+    {
+        if ($this->groupBy === null && $this->having === null) {
+            return;
+        }
+
+        throw new QueryParamMalformed(
+            $this->groupBy !== null ? 'group' : 'having',
+            'Grouping cannot be combined with an operation that returns resources: '
+            . 'a grouped row has no id. Use count(), sum(), avg(), min() or max() '
+            . 'to read an aggregate over a group.',
+        );
+    }
+
+    /**
      * A non-numeric id is treated as a uuid when the entity maps a 'uuid'
      * field, and swapped for the numeric primary key so every downstream
      * id comparison stays unchanged. Unresolvable ids become '0', which no
@@ -458,6 +502,8 @@ final class JsonApiQueryBuilder
      */
     private function executeShow(): array
     {
+        $this->guardAgainstGrouping();
+
         if (!$this->id) {
             throw new InvalidArgumentException('ID required for show operation');
         }
@@ -493,15 +539,22 @@ final class JsonApiQueryBuilder
         $linkageMap  = $toManyData['linkage'];   // all OneToMany → always add to relationships
         $includedRaw = $toManyData['included'];  // only ?include= rels → add to compound document
 
-        $included = [];
         foreach ($linkageMap as $relName => $byParent) {
             $item['relationships'][$relName] = ['data' => $byParent[$this->id] ?? []];
         }
+
+        // Keyed by type:id while collecting: a compound document must not carry
+        // two resource objects for the same pair, and two included
+        // relationships can legitimately resolve to the same record.
+        $includedMap = [];
         foreach ($includedRaw as $byParent) {
             foreach ($byParent as $items) {
-                array_push($included, ...$items);
+                foreach ($items as $i) {
+                    $includedMap[$i['type'] . ':' . $i['id']] = $i;
+                }
             }
         }
+        $included = array_values($includedMap);
 
         // A single resource is the `data` member itself, not a one-element
         // list — the same split every JSON:API implementation makes between a
@@ -634,8 +687,14 @@ final class JsonApiQueryBuilder
         }
 
         $sort = $this->buildSort();
-        foreach ($sort['query'] as $sortPart) {
-            $this->qb->addOrderBy(...$sortPart);
+        $dialect = SqlDialect::for($this->conn->getDatabasePlatform());
+        foreach ($sort['query'] as [$expression, $direction]) {
+            // Each engine has its own idea of where NULLs belong, so the same
+            // sort returns a different first page on each. The dialect pins
+            // them to the end everywhere.
+            foreach ($dialect->orderByNullsLast($expression, $direction) as $orderBy) {
+                $this->qb->addOrderBy($orderBy);
+            }
         }
 
         $page = $this->buildPage();
@@ -839,7 +898,7 @@ final class JsonApiQueryBuilder
 
             foreach ($segments as $index => $segment) {
                 if (!$currentMeta->hasAssociation($segment)) {
-                    throw new InvalidArgumentException("Unknown include: $segment in path $path");
+                    throw new InclusionUnrecognized($path, "Unknown include: $segment in path $path");
                 }
 
                 $mapping = $currentMeta->getAssociationMapping($segment);
@@ -1047,6 +1106,10 @@ final class JsonApiQueryBuilder
         // total the pager is built from.
         $countQb->select("COUNT(DISTINCT $this->alias.id) AS total");
         $countQb->resetGroupBy();
+        // An ORDER BY on a column the aggregate does not group by is invalid
+        // SQL — PostgreSQL rejects it outright, and it is wasted sorting on the
+        // engines that tolerate it, since a count has one row to order.
+        $countQb->resetOrderBy();
         $countQb->setMaxResults(null);
         $countQb->setFirstResult(0);
         foreach ($this->params as $key => $value) {
@@ -1116,7 +1179,8 @@ final class JsonApiQueryBuilder
                 // path silently would return a result that looks complete but
                 // is missing what was asked for.
                 if (isset($segments[2])) {
-                    throw new InvalidArgumentException(
+                    throw new InclusionUnrecognized(
+                        $path,
                         "Include path $path nests too deeply; only one level "
                         . 'of nesting (rel.toOneRel) is supported.'
                     );
@@ -1205,7 +1269,8 @@ final class JsonApiQueryBuilder
             if ($isIncluded) {
                 foreach ($nestedIncludes[$segment] ?? [] as $subSegment) {
                     if (!$targetMeta->hasAssociation($subSegment)) {
-                        throw new InvalidArgumentException(
+                        throw new InclusionUnrecognized(
+                            "$segment.$subSegment",
                             "Unknown include: $subSegment in path $segment.$subSegment"
                         );
                     }
@@ -1216,7 +1281,8 @@ final class JsonApiQueryBuilder
                     // need its own batched query per parent set; rejecting it
                     // is better than silently returning nothing.
                     if (!($subMapping['type'] & ClassMetadata::TO_ONE) || !isset($subMapping['joinColumns'])) {
-                        throw new InvalidArgumentException(
+                        throw new InclusionUnrecognized(
+                            "$segment.$subSegment",
                             "Nested include $segment.$subSegment is not a to-one relationship; "
                             . 'only to-one nesting is supported.'
                         );
@@ -1484,7 +1550,7 @@ final class JsonApiQueryBuilder
         $allowedFields = $this->getAllowedFields();
         $invalidFields = array_diff($fields, $allowedFields);
         if ($invalidFields) {
-            throw new InvalidArgumentException('Invalid fields: ' . implode(', ', $invalidFields));
+            throw new FieldUnrecognized(array_values($invalidFields));
         }
     }
 
@@ -1492,7 +1558,7 @@ final class JsonApiQueryBuilder
     {
         $allowedRelationships = $this->getAllowedRelationships();
         if (!in_array($relationship, $allowedRelationships)) {
-            throw new InvalidArgumentException("Invalid relationship: $relationship");
+            throw new InclusionUnrecognized($relationship, "Invalid relationship: $relationship");
         }
     }
 
