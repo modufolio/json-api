@@ -28,6 +28,30 @@ composer require modufolio/json-api
 - PSR-7 HTTP Message implementation
 - PSR-17 HTTP Factory implementation
 
+Tested against SQLite, MySQL 8.4, PostgreSQL 16 and SQL Server 2022.
+
+## Testing
+
+The suite runs on SQLite in memory by default, so a fresh checkout needs no
+setup:
+
+```bash
+composer test
+```
+
+The engines disagree in ways that change which rows a query returns — where
+NULLs sort, whether `LIKE` folds case, whether a partially-grouped SELECT is
+even legal — so the same suite runs against each of them. `docker compose up -d`
+brings the databases up locally:
+
+```bash
+DB_DRIVER=pdo_pgsql  DB_PORT=5433 DB_USER=postgres DB_PASSWORD=secret vendor/bin/phpunit
+DB_DRIVER=pdo_mysql  DB_PORT=3307 DB_USER=root     DB_PASSWORD=secret vendor/bin/phpunit
+DB_DRIVER=pdo_sqlsrv DB_PORT=1434 DB_USER=sa       DB_PASSWORD='Secret_1234' vendor/bin/phpunit
+```
+
+CI runs the full matrix on every push.
+
 ## Documentation
 
 - [Installation and Setup](docs/installation.md)
@@ -36,6 +60,7 @@ composer require modufolio/json-api
 - [Filtering](docs/filtering.md)
 - [Query Builder](docs/query-builder.md)
 - [API Reference](docs/reference/index.md)
+- [Errors](docs/reference/errors.md)
 
 
 ## License

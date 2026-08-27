@@ -8,6 +8,7 @@ use Doctrine\DBAL\Query\Expression\ExpressionBuilder;
 use Doctrine\DBAL\Query\QueryBuilder;
 use Doctrine\ORM\EntityManager;
 use InvalidArgumentException;
+use Modufolio\JsonApi\Exception\QueryParamMalformed;
 use Modufolio\JsonApi\JsonApiQueryBuilder;
 use Modufolio\JsonApi\JsonApiQueryParams;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Account;
@@ -423,9 +424,9 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
         $params = new JsonApiQueryParams();
         $params->group = ['firstName'];
 
-        $result = $this->makeQb()->applyParams($params)->operation('index')->get();
+        $this->expectException(QueryParamMalformed::class);
 
-        $this->assertArrayHasKey('data', $result);
+        $this->makeQb()->applyParams($params)->operation('index')->get();
     }
 
     public function testApplyParamsHaving(): void
@@ -434,9 +435,9 @@ class JsonApiQueryBuilderAdvancedTest extends TestCase
         $params->group = ['firstName'];
         $params->having = ['query' => 'COUNT(*) >= 1', 'bindings' => []];
 
-        $result = $this->makeQb()->applyParams($params)->operation('index')->get();
+        $this->expectException(QueryParamMalformed::class);
 
-        $this->assertArrayHasKey('data', $result);
+        $this->makeQb()->applyParams($params)->operation('index')->get();
     }
 
     public function testApplyParamsId(): void

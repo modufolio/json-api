@@ -64,8 +64,8 @@ $result = $builder
 | `include(array $includes): self` | Relationships to include |
 | `page(int $number, int $size): self` | Pagination — page number and page size |
 | `withoutPagination(): self` | Emit no `LIMIT` at all — return every matching row |
-| `group(string $field): self` | Add a `GROUP BY` field |
-| `having(string $condition, array $bindings = []): self` | Add a `HAVING` clause |
+| `group(string $field): self` | Add a `GROUP BY` field — aggregates only, see below |
+| `having(string $condition, array $bindings = []): self` | Add a `HAVING` clause — aggregates only, see below |
 | `operation(string $operation): self` | `index`, `show`, `create`, `update`, `delete` — checked against the resource's `operations` map |
 | `withId(string $id): self` | Target a single resource (used by `show`) |
 | `withData(array $data): self` | Supply data for mutations |
@@ -156,6 +156,8 @@ A filter key must be one of the resource's configured `fields`; when the query c
 
 Sort fields must be in the resource's `fields` list. Sorting across a relationship is not supported.
 
+**NULLs sort last**, ascending and descending alike, on every engine. Left to the databases this differs — PostgreSQL puts them last ascending and first descending, MySQL and SQLite the reverse — so a client paging a sorted collection would see a different first page per deployment. The `ORDER BY` needed to pin it is spelled differently on each engine (`NULLS LAST`, a nullness rank, a `CASE`), which is what `Modufolio\JsonApi\Platform\SqlDialect` exists for.
+
 ## Includes
 
 ```php
@@ -229,6 +231,16 @@ $sql = $builder
 ```
 
 Or use `debug()` to get the query and its bindings back from `get()` instead of executing it.
+
+## Grouping
+
+`group()` and `having()` apply to the aggregate helpers only — `count()`, `sum()`, `avg()`, `min()`, `max()` — which replace the SELECT with the aggregate expression:
+
+```php
+$builder->group('status')->avg('score');
+```
+
+Combining them with `index` or `show` raises `QueryParamMalformed` (400). A grouped query returns one row per group, and that row has no `id` — which JSON:API requires on every resource object — so a grouped resource document cannot be valid. The SQL was invalid too: `SELECT <every field> … GROUP BY <one field>` is rejected by PostgreSQL and by MySQL under its default `ONLY_FULL_GROUP_BY`; only SQLite accepted it, which is why the combination appeared to work.
 
 ## Security notes
 

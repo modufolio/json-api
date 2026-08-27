@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modufolio\JsonApi\Tests;
 
+use Modufolio\JsonApi\Exception\QueryParamMalformed;
 use Modufolio\JsonApi\JsonApiQueryBuilder;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Contact;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Account;
@@ -209,15 +210,16 @@ class JsonApiQueryBuilderEdgeCasesTest extends TestCase
             Contact::class
         );
 
-        $result = $queryBuilder
+        // A grouped row has no id, so it cannot be a JSON:API resource — and
+        // the SQL this used to emit was rejected by every engine but SQLite.
+        $this->expectException(QueryParamMalformed::class);
+        $this->expectExceptionMessage('a grouped row has no id');
+
+        $queryBuilder
             ->group('firstName')
             ->having('COUNT(*) >= 1')
             ->operation('index')
             ->get();
-
-        $this->assertIsArray($result);
-        $this->assertArrayHasKey('data', $result);
-        $this->assertGreaterThanOrEqual(1, count($result['data']));
     }
 
     public function testBasicQueryOperations(): void

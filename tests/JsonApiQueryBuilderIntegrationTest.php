@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modufolio\JsonApi\Tests;
 
+use Modufolio\JsonApi\Exception\QueryParamMalformed;
 use Modufolio\JsonApi\JsonApiQueryBuilder;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Contact;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Account;
@@ -132,15 +133,13 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
             Contact::class
         );
 
-        $result = $queryBuilder
+        $this->expectException(QueryParamMalformed::class);
+
+        $queryBuilder
             ->group('firstName')
             ->having('COUNT(*) >= 1')
             ->operation('index')
             ->get();
-
-        $this->assertIsArray($result);
-        $this->assertArrayHasKey('data', $result);
-        $this->assertGreaterThanOrEqual(1, count($result['data']));
     }
 
     public function testTransformRowWithRelationships(): void
