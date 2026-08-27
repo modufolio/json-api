@@ -102,4 +102,66 @@ class JsonApiConfiguratorRolesTest extends TestCase
             $api->getRoles()
         );
     }
+
+    public function testSplitRolesShapeIsCarriedThrough(): void
+    {
+        $api = new JsonApiConfigurator();
+        $api->entities([Contact::class]);
+        $api->roles(Contact::class, ['read' => ['ROLE_USER'], 'write' => ['ROLE_ADMIN']]);
+
+        $this->assertSame(
+            ['read' => ['ROLE_USER'], 'write' => ['ROLE_ADMIN']],
+            $api->buildConfig()[Contact::class]['roles']
+        );
+    }
+
+    public function testSplitRolesKeepPresentButEmptySides(): void
+    {
+        $api = new JsonApiConfigurator();
+        $api->entities([Contact::class]);
+        // Present-but-empty means "deliberately open"; the loader must be able
+        // to tell it apart from an absent key, so it has to survive as-is.
+        $api->roles(Contact::class, ['read' => [], 'write' => []]);
+
+        $this->assertSame(
+            ['read' => [], 'write' => []],
+            $api->buildConfig()[Contact::class]['roles']
+        );
+    }
+
+    public function testSplitRolesDropEmptyRoleNames(): void
+    {
+        $api = new JsonApiConfigurator();
+        $api->entities([Contact::class]);
+        $api->roles(Contact::class, ['write' => ['ROLE_ADMIN', '']]);
+
+        $this->assertSame(
+            ['write' => ['ROLE_ADMIN']],
+            $api->buildConfig()[Contact::class]['roles']
+        );
+    }
+
+    public function testSplitRolesRejectUnknownKeys(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown roles key(s) "admin"');
+
+        // A misspelled side would otherwise leave that side ungated silently.
+        // Exercised through the sanitizer both roles() entry points share.
+        JsonApiConfigurator::sanitizeRoles(['admin' => ['ROLE_ADMIN']]);
+    }
+
+    public function testFluentResourceBuilderCarriesSplitRoles(): void
+    {
+        $api = new JsonApiConfigurator();
+        $api->resource(Contact::class)
+            ->key('contact')
+            ->operations(['index' => true, 'update' => true])
+            ->roles(['read' => ['ROLE_USER'], 'write' => ['ROLE_ADMIN']]);
+
+        $this->assertSame(
+            ['read' => ['ROLE_USER'], 'write' => ['ROLE_ADMIN']],
+            $api->buildConfig()[Contact::class]['roles']
+        );
+    }
 }

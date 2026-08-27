@@ -21,7 +21,7 @@ class JsonApiConfigurator
     private array $filters = [];
 
     /**
-     * @var array<string, list<string>>
+     * @var array<string, list<string>|array{read?: list<string>, write?: list<string>}>
      */
     private array $roles = [];
 
@@ -102,25 +102,69 @@ class JsonApiConfigurator
      *
      * Any one of the listed roles grants access.
      *
+     * Two shapes are accepted. A flat list guards every operation of the
+     * entity; a `read`/`write` map splits the gate by operation kind, which
+     * the route loader turns into method-scoped groups. In the split shape a
+     * key that is *present but empty* deliberately leaves that side open —
+     * the loader distinguishes it from an absent key.
+     *
      * @param class-string $entityClass
-     * @param list<string> $roles
+     * @param list<string>|array{read?: list<string>, write?: list<string>} $roles
      * @return self
      */
     public function roles(string $entityClass, array $roles): self
     {
-        $this->roles[$entityClass] = array_values(array_filter(
-            $roles,
-            static fn (string $role): bool => '' !== $role,
-        ));
+        $this->roles[$entityClass] = self::sanitizeRoles($roles);
         $this->config = null; // Clear cache
 
         return $this;
     }
 
     /**
+     * Normalise a roles declaration: drop empty role names (an empty string
+     * would become a role nobody can hold and silently lock the resource),
+     * and reject unknown keys in the split shape outright — a misspelled
+     * `write` key would otherwise leave that side ungated without a trace.
+     *
+     * @internal shared with the fluent ResourceConfigurator
+     *
+     * @param array<array-key, mixed> $roles
+     * @return list<string>|array{read?: list<string>, write?: list<string>}
+     */
+    public static function sanitizeRoles(array $roles): array
+    {
+        $names = static fn (array $list): array => array_values(array_filter(
+            $list,
+            static fn (mixed $role): bool => is_string($role) && '' !== $role,
+        ));
+
+        if (array_is_list($roles)) {
+            return $names($roles);
+        }
+
+        $unknown = array_diff(array_keys($roles), ['read', 'write']);
+        if ($unknown !== []) {
+            throw new \InvalidArgumentException(sprintf('Unknown roles key(s) "%s"; expected "read" and/or "write".', implode('", "', $unknown)));
+        }
+
+        $split = [];
+        foreach (['read', 'write'] as $side) {
+            if (!array_key_exists($side, $roles)) {
+                continue;
+            }
+            if (!is_array($roles[$side])) {
+                throw new \InvalidArgumentException(sprintf('Roles for "%s" must be a list of role names.', $side));
+            }
+            $split[$side] = $names($roles[$side]);
+        }
+
+        return $split;
+    }
+
+    /**
      * Get all registered roles
      *
-     * @return array<string, list<string>>
+     * @return array<string, list<string>|array{read?: list<string>, write?: list<string>}>
      */
     public function getRoles(): array
     {
@@ -277,7 +321,7 @@ class ResourceConfigurator
     private array $relationships = [];
     /** @var array<string, bool> */
     private array $operations = [];
-    /** @var list<string> */
+    /** @var list<string>|array{read?: list<string>, write?: list<string>} */
     private array $roles = [];
 
     /**
@@ -329,14 +373,15 @@ class ResourceConfigurator
     /**
      * Roles allowed to reach this resource; any one of them grants access.
      *
-     * @param list<string> $roles
+     * Accepts the same two shapes as JsonApiConfigurator::roles() — a flat
+     * list guarding every operation, or a `read`/`write` map splitting the
+     * gate by operation kind.
+     *
+     * @param list<string>|array{read?: list<string>, write?: list<string>} $roles
      */
     public function roles(array $roles): self
     {
-        $this->roles = array_values(array_filter(
-            $roles,
-            static fn (string $role): bool => '' !== $role,
-        ));
+        $this->roles = JsonApiConfigurator::sanitizeRoles($roles);
         $this->save();
         return $this;
     }
