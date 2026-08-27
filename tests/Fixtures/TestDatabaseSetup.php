@@ -98,10 +98,13 @@ class TestDatabaseSetup
             $params['port'] = (int) getenv('DB_PORT');
         }
 
-        // A containerised SQL Server presents a self-signed certificate, and
-        // the driver refuses the connection outright without this.
+        // ODBC driver 18 encrypts by default and rejects the self-signed
+        // certificate a containerised SQL Server presents, so the connection
+        // fails outright without this. String-keyed driverOptions are appended
+        // to the DSN verbatim, hence '1' rather than a bool that would be
+        // stringified on the way through.
         if (str_contains($driver, 'sqlsrv')) {
-            $params['driverOptions']['TrustServerCertificate'] = true;
+            $params['driverOptions']['TrustServerCertificate'] = '1';
         }
 
         return $params;
