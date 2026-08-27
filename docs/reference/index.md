@@ -9,6 +9,7 @@ Reference for the public classes of `modufolio/json-api`, grouped by responsibil
 | Input handling | `InputNormalizer`, `JsonApiRequestDeserializer` | [input.md](input.md) |
 | Documents & serialization | `JsonApiDocument`, `ResourceObject`, `ResourceIdentifierObject`, `ErrorObject`, `JsonApiSerializer` | [documents.md](documents.md) |
 | Filters | `FilterInterface`, `FilterRegistry`, `JsonApiFilterHandler`, `SearchFilter`, `SearchStrategy`, `DateFilter` | [filters.md](filters.md) |
+| Errors | `JsonApiExceptionInterface`, `MediaTypeUnsupported`, `MediaTypeUnacceptable`, `ResourceNotFound`, `QueryParamMalformed`, `InclusionUnrecognized`, `FieldUnrecognized` | [errors.md](errors.md) |
 | HTTP, pagination, utilities | `ResponseFactory`, `JsonApiPaginator`, `Str`, `SafeExpressionBuilder` | [http.md](http.md) |
 | Value casting | `AttributeCaster` | [input.md](input.md) |
 
