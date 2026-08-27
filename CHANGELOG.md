@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While the project is in the `0.x` series the public API is not considered stable:
 behaviour may change in any minor release.
 
+## [0.7.0] - 2026-08-27
+
+### Upgrading
+
+- **Deleting a missing record now reports it instead of claiming success.**
+  `get()` on a `delete` operation used to return `['status' => 'deleted']`
+  whether or not the id matched a row. When nothing was deleted it now
+  returns `['data' => null]` — the same convention `show` uses for a missing
+  record — so a controller can 404 instead of confirming a deletion that
+  never happened. Callers that only check `$result['status']` keep working
+  for actual deletions; add the null-data check for the miss.
+
+### Added
+
+- **Row-level scoping, enforced on every operation.**
+  `JsonApiQueryBuilder::scope()` states once which rows the caller may touch
+  ("this tenant's", "this user's own") and applies it uniformly: `index`,
+  `show`, aggregates and the pager total add it to their `WHERE`; `update`
+  and `delete` refuse to touch rows outside it, reporting an out-of-scope id
+  exactly like a missing one; `create` forces the scoped values onto the new
+  row so a client cannot park a record in another tenant. Scopes enforced on
+  read but forgotten on write are this year's recurring composer-advisory
+  shape (cross-tenant record re-parenting, query scopes skipped on
+  update/delete/reorder); a single declaration point removes the asymmetry.
+  The scope deliberately survives the builder's per-operation reset —
+  forgetting a containment constraint on reuse would fail open.
+  (`docs/query-builder.md`)
+
+- **Read/write role split.** `roles()` — on the configurator and the fluent
+  resource builder alike — now also accepts
+  `['read' => ['ROLE_USER'], 'write' => ['ROLE_ADMIN']]` next to the flat
+  list, so "readable by users, writable by admins" no longer forces
+  over-granting writes or over-protecting reads. A side that is present but
+  empty is deliberately open (the route loader can tell it apart from an
+  absent key); unknown keys throw. The shape is carried through
+  `buildConfig()` verbatim for the host framework's route loader to enforce.
+  (`docs/reference/configuration.md`)
+
+### Fixed
+
+- **The reference docs still described the pre-0.6 `show` result.**
+  `docs/reference/query.md` claimed the row sits at numeric key `0`; since
+  0.6 a single resource is the `data` member itself, `null` when missing.
+
 ## [0.6.0] - 2026-08-27
 
 ### Upgrading
