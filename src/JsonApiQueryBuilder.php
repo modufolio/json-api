@@ -55,6 +55,15 @@ final class JsonApiQueryBuilder
     private bool $debug = false;
     private bool $withTotalCount = false;
     private string $alias = 't0';
+    /**
+     * Row-level scope, keyed by column name after mapping in scope().
+     * Deliberately NOT cleared by reset(): the scope describes which rows the
+     * caller may touch at all, so a reused builder must keep it — forgetting a
+     * security constraint on reuse would fail open.
+     *
+     * @var array<string, int|float|string|null|list<int|float|string>>
+     */
+    private array $scope = [];
     
     // Security: Pattern for validating SQL identifiers
     private const SQL_IDENTIFIER_PATTERN = '/^[a-zA-Z_][a-zA-Z0-9_]*$/';
@@ -285,6 +294,49 @@ final class JsonApiQueryBuilder
     public function withTotalCount(): self
     {
         $this->withTotalCount = true;
+        return $this;
+    }
+
+    /**
+     * Restrict every operation to the rows matching these constraints.
+     *
+     * This is the row-level counterpart to the config's roles: "which rows may
+     * this caller touch" (the current tenant's, the current user's own), stated
+     * once and enforced uniformly — index and show add the constraints to their
+     * WHERE clause, update and delete refuse to touch rows outside it (an
+     * out-of-scope id behaves exactly like a missing one, so it cannot be told
+     * apart), and create forces the scoped values onto the new row. Enforcing a
+     * scope on reads but not writes is how records leak across tenants; a
+     * single declaration point removes that asymmetry.
+     *
+     * Keys are field names or to-one relationship names of the resource; values
+     * are a scalar (equality), null (IS NULL), or a non-empty list of scalars
+     * (IN). Values must come from trusted context (the authenticated user, the
+     * resolved tenant) — never from request input. Repeated calls merge, later
+     * values winning per key.
+     *
+     * @param array<string, int|float|string|bool|null|list<int|float|string|bool>> $scope
+     */
+    public function scope(array $scope): self
+    {
+        foreach ($scope as $field => $value) {
+            $column = $this->resolveScopeColumn($field);
+
+            if (is_array($value)) {
+                if ($value === []) {
+                    // An empty IN () matches nothing; a scope that can never
+                    // match is almost certainly a bug upstream (an unresolved
+                    // tenant), and silently returning nothing would mask it.
+                    throw new InvalidArgumentException("Scope for '$field' is an empty list; refusing a scope that can never match.");
+                }
+                $value = array_map($this->normalizeScopeScalar(...), $value);
+            } elseif ($value !== null) {
+                $value = $this->normalizeScopeScalar($value);
+            }
+
+            $this->scope[$column] = $value;
+        }
+
         return $this;
     }
 
@@ -578,6 +630,11 @@ final class JsonApiQueryBuilder
             $mappedData['updated_at'] = date('Y-m-d H:i:s');
         }
 
+        // A scoped create must produce a row inside the scope — otherwise a
+        // caller could create records they can neither see nor touch again
+        // (or worse, park them in another tenant).
+        $mappedData = $this->applyScopeToCreateData($mappedData);
+
         if ($this->debug) {
             $qb = $this->conn->createQueryBuilder()->insert($this->meta->getTableName());
             foreach ($mappedData as $column => $value) {
@@ -611,20 +668,33 @@ final class JsonApiQueryBuilder
             $mappedData['updated_at'] = date('Y-m-d H:i:s');
         }
 
+        $qb = $this->conn->createQueryBuilder()->update($this->meta->getTableName());
+        foreach ($mappedData as $column => $value) {
+            $qb->set($column, ':' . $column);
+            $qb->setParameter($column, $value);
+        }
+        $qb->where('id = :id')->setParameter('id', $this->id);
+
+        // The scope guards writes exactly like reads: a row outside it is left
+        // untouched, and the scoped re-read below then reports it exactly like
+        // a missing one (`data: null`), so an out-of-scope id cannot be told
+        // apart from a nonexistent one.
+        $scope = $this->scopeConditions(null);
+        foreach ($scope['conditions'] as $condition) {
+            $qb->andWhere($condition);
+        }
+        foreach ($scope['bindings'] as $key => $value) {
+            $qb->setParameter($key, $value);
+        }
+
         if ($this->debug) {
-            $qb = $this->conn->createQueryBuilder()->update($this->meta->getTableName());
-            foreach ($mappedData as $column => $value) {
-                $qb->set($column, ':' . $column);
-                $qb->setParameter($column, $value);
-            }
-            $qb->where('id = :id')->setParameter('id', $this->id);
             return [
                 'query' => $qb->getSQL(),
                 'bindings' => $qb->getParameters(),
             ];
         }
 
-        $this->conn->update($this->meta->getTableName(), $mappedData, ['id' => $this->id]);
+        $qb->executeStatement();
         return $this->operation('show')->withId($this->id)->get();
     }
 
@@ -636,15 +706,35 @@ final class JsonApiQueryBuilder
         if (!$this->id) {
             throw new InvalidArgumentException('ID required for delete operation');
         }
+
+        $qb = $this->conn->createQueryBuilder()->delete($this->meta->getTableName());
+        $qb->where('id = :id')->setParameter('id', $this->id);
+
+        // Same containment as update: a row outside the scope is not deleted.
+        $scope = $this->scopeConditions(null);
+        foreach ($scope['conditions'] as $condition) {
+            $qb->andWhere($condition);
+        }
+        foreach ($scope['bindings'] as $key => $value) {
+            $qb->setParameter($key, $value);
+        }
+
         if ($this->debug) {
-            $qb = $this->conn->createQueryBuilder()->delete($this->meta->getTableName());
-            $qb->where('id = :id')->setParameter('id', $this->id);
             return [
                 'query' => $qb->getSQL(),
                 'bindings' => $qb->getParameters(),
             ];
         }
-        $this->conn->delete($this->meta->getTableName(), ['id' => $this->id]);
+
+        $affected = $qb->executeStatement();
+
+        if ($affected === 0) {
+            // Nothing matched — the id does not exist, or the scope excludes
+            // it; the two are deliberately indistinguishable. Same convention
+            // as show: the caller turns a null `data` into a 404.
+            return ['data' => null];
+        }
+
         return ['status' => 'deleted', 'id' => $this->id];
     }
 
@@ -674,6 +764,14 @@ final class JsonApiQueryBuilder
         $filters = $this->buildFilters();
         // FilterRegistry applies filters directly to QB, so no need to call andWhere here
         $this->params = array_merge($this->params, $filters['bindings']);
+
+        // Row-level scope (see scope()). Applied after client filters so a
+        // crafted filter can only narrow the scoped set, never widen it.
+        $scope = $this->scopeConditions($this->alias);
+        foreach ($scope['conditions'] as $condition) {
+            $this->qb->andWhere($condition);
+        }
+        $this->params = array_merge($this->params, $scope['bindings']);
 
         $group = $this->buildGroup();
         if ($group['query']) {
@@ -1540,6 +1638,122 @@ final class JsonApiQueryBuilder
             $mappedData[$column] = $value;
         }
         return $mappedData;
+    }
+
+    /**
+     * Map a scope key (field name or to-one relationship name) to its column.
+     *
+     * Unknown keys throw instead of passing through: a misspelled scope key
+     * that silently matched nothing — or worse, everything — would defeat the
+     * constraint it was meant to enforce.
+     */
+    private function resolveScopeColumn(string $field): string
+    {
+        if (isset($this->meta->fieldMappings[$field])) {
+            $column = $this->meta->fieldMappings[$field]['columnName'];
+        } elseif ($this->meta->hasAssociation($field)) {
+            $mapping = $this->meta->getAssociationMapping($field);
+            if (!($mapping['type'] & ClassMetadata::TO_ONE) || !isset($mapping['joinColumns'])) {
+                throw new InvalidArgumentException("Scope key '$field' is a to-many relationship; scopes constrain columns of {$this->resourceClass} itself.");
+            }
+            $column = $mapping['joinColumns'][0]['name'] ?? $field . '_id';
+        } else {
+            throw new InvalidArgumentException("Unknown scope key '$field' for {$this->resourceClass}; expected a field or to-one relationship name.");
+        }
+
+        if (!preg_match(self::SQL_IDENTIFIER_PATTERN, $column)) {
+            throw new InvalidArgumentException("Scope column '$column' is not a valid SQL identifier.");
+        }
+
+        return $column;
+    }
+
+    /**
+     * @param mixed $value
+     */
+    private function normalizeScopeScalar(mixed $value): int|float|string
+    {
+        if (is_bool($value)) {
+            return (int) $value; // engine-portable: SQLite/MySQL store bools as ints
+        }
+
+        if (is_int($value) || is_float($value) || is_string($value)) {
+            return $value;
+        }
+
+        throw new InvalidArgumentException('Scope values must be scalars, null, or lists of scalars; got ' . get_debug_type($value) . '.');
+    }
+
+    /**
+     * Force the scope onto a new row's column map.
+     *
+     * Scalar and null entries overwrite whatever the client sent for that
+     * column — the scope, not the request, decides the tenant column. A list
+     * entry cannot pick a value by itself, so the client's value must already
+     * be one of the allowed ones.
+     *
+     * @param array<string, mixed> $mappedData
+     *
+     * @return array<string, mixed>
+     */
+    private function applyScopeToCreateData(array $mappedData): array
+    {
+        foreach ($this->scope as $column => $value) {
+            if (is_array($value)) {
+                $sent = $mappedData[$column] ?? null;
+                $sent = is_bool($sent) ? (int) $sent : $sent;
+
+                if (!is_scalar($sent)
+                    || !in_array((string) $sent, array_map(strval(...), $value), true)) {
+                    throw new InvalidArgumentException("Value for '$column' is outside the enforced scope.");
+                }
+
+                $mappedData[$column] = $sent;
+                continue;
+            }
+
+            $mappedData[$column] = $value;
+        }
+
+        return $mappedData;
+    }
+
+    /**
+     * The scope as SQL conditions plus their bindings.
+     *
+     * @return array{conditions: list<string>, bindings: array<string, int|float|string>}
+     */
+    private function scopeConditions(?string $alias): array
+    {
+        $conditions = [];
+        $bindings = [];
+        $n = 0;
+
+        foreach ($this->scope as $column => $value) {
+            $ref = ($alias !== null ? "$alias." : '') . $this->conn->quoteIdentifier($column);
+
+            if ($value === null) {
+                $conditions[] = "$ref IS NULL";
+                continue;
+            }
+
+            if (is_array($value)) {
+                $placeholders = [];
+                foreach ($value as $item) {
+                    $param = 'jsonapi_scope_' . $n++;
+                    $placeholders[] = ':' . $param;
+                    $bindings[$param] = $item;
+                }
+                $conditions[] = "$ref IN (" . implode(', ', $placeholders) . ')';
+                continue;
+            }
+
+            $param = 'jsonapi_scope_' . $n++;
+            $conditions[] = "$ref = :$param";
+            $bindings[$param] = $value;
+        }
+
+        return ['conditions' => $conditions, 'bindings' => $bindings];
     }
 
     /**

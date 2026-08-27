@@ -69,8 +69,11 @@ public function operation(string $operation): self   // index|show|create|update
 public function withId(string $id): self
 public function withData(array $data): self
 public function withTotalCount(): self
+public function scope(array $scope): self              // row-level containment, enforced on every operation
 public function debug(): self                          // return query + bindings instead of executing
 ```
+
+`scope()` restricts every operation to the rows matching its constraints — keys are field or to-one relationship names, values a scalar, `null`, or a non-empty list. It survives `get()`'s internal reset. See [Query builder › Row-level scoping](../query-builder.md#row-level-scoping).
 
 ### Execution
 
@@ -83,8 +86,8 @@ Return shape depends on the operation:
 | Operation | Shape |
 |-----------|-------|
 | `index` | `['data' => [...rows...], 'included' => [...]]`, plus `'total' => int` when `withTotalCount()` was called |
-| `show` | `[0 => row, 'included' => [...]]` — the row sits at the numeric key `0`, not under `data`; `[]` when the id matched nothing |
-| `delete` | `['status' => 'deleted', 'id' => ...]` |
+| `show` | `['data' => row, 'included' => [...]]`; `['data' => null]` when the id matched nothing (or the scope excluded it) |
+| `delete` | `['status' => 'deleted', 'id' => ...]`; `['data' => null]` when nothing matched — a missing id and an out-of-scope one are deliberately indistinguishable |
 | any, after `debug()` | `['query' => string, 'bindings' => array]` |
 
 `included` is always present on `index` and `show` (empty when nothing was included). Each row is `['id' => ..., 'attributes' => [...], 'relationships' => [...]]`; `relationships` carries linkage for every configured to-many whether or not it was included, and for any to-one whose foreign key was selected.

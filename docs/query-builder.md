@@ -70,6 +70,7 @@ $result = $builder
 | `withId(string $id): self` | Target a single resource (used by `show`) |
 | `withData(array $data): self` | Supply data for mutations |
 | `withTotalCount(): self` | Include the total row count in the result |
+| `scope(array $scope): self` | Row-level containment enforced on every operation — see [Row-level scoping](#row-level-scoping) |
 | `debug(): self` | Return the query and bindings instead of executing |
 | `get(): array` | Execute and return the rows |
 
@@ -242,11 +243,49 @@ $builder->group('status')->avg('score');
 
 Combining them with `index` or `show` raises `QueryParamMalformed` (400). A grouped query returns one row per group, and that row has no `id` — which JSON:API requires on every resource object — so a grouped resource document cannot be valid. The SQL was invalid too: `SELECT <every field> … GROUP BY <one field>` is rejected by PostgreSQL and by MySQL under its default `ONLY_FULL_GROUP_BY`; only SQLite accepted it, which is why the combination appeared to work.
 
+## Row-level scoping
+
+`scope()` states once which rows the caller may touch at all — the current
+tenant's, the current user's own — and enforces it on **every** operation.
+Scopes applied on read but forgotten on update or delete are how records leak
+across tenants; a single declaration point removes that asymmetry.
+
+```php
+$builder->scope(['account' => $currentUser->getAccountId()]);
+```
+
+Keys are field names or to-one relationship names of the resource; values are
+a scalar (equality), `null` (`IS NULL`), or a non-empty list of scalars (`IN`).
+Unknown keys, to-many relationship names, and empty lists throw — a scope that
+silently matched nothing (or everything) would defeat the constraint it was
+meant to enforce.
+
+What each operation does with the scope:
+
+| Operation | Behaviour |
+|-----------|-----------|
+| `index` | Constraints join the `WHERE` clause; the pager total and aggregates are scoped too |
+| `show` | An out-of-scope id returns `['data' => null]` — indistinguishable from a missing one |
+| `update` | Rows outside the scope are left untouched; the scoped re-read then reports `data: null` |
+| `delete` | Rows outside the scope are not deleted; the result is `['data' => null]` |
+| `create` | Scalar and `null` entries **overwrite** the client's value for that column, so the new row lands inside the scope; a list entry requires the client's value to be one of the allowed ones |
+
+Two properties worth knowing:
+
+- **Scope values must come from trusted context** (the authenticated user, the
+  resolved tenant) — never from request input. Client filters are applied
+  separately and can only narrow the scoped set, never widen it.
+- **The scope survives `get()`'s internal reset.** Filters, sort and paging
+  clear between operations on a reused builder; the scope is security state
+  and deliberately does not — forgetting a containment constraint on reuse
+  would fail open.
+
 ## Security notes
 
 - **Keep `fields` explicit** — it is the allow-list for serialization, filtering, sorting, and sparse fieldsets. Anything not listed cannot be reached.
 - **Restrict `operations`** — set the operations map to `['index' => true, 'show' => true]` for a read-only API.
 - **Limit `relationships`** — only listed associations can be included.
+- **Scope multi-tenant data** — declare `scope()` in one place (a controller base class or factory), so no operation can miss it.
 
 ## Next steps
 
