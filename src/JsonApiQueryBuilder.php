@@ -64,6 +64,15 @@ final class JsonApiQueryBuilder
      * @var array<string, int|float|string|null|list<int|float|string>>
      */
     private array $scope = [];
+
+    /**
+     * Set by withoutScope(): this query is deliberately unscoped.
+     *
+     * Like $scope itself, NOT cleared by reset() — a waiver is a statement
+     * about the caller's intent for this builder, and silently revoking it on
+     * reuse would swap a deliberate decision for an accidental one.
+     */
+    private bool $scopeWaived = false;
     
     // Security: Pattern for validating SQL identifiers
     private const SQL_IDENTIFIER_PATTERN = '/^[a-zA-Z_][a-zA-Z0-9_]*$/';
@@ -340,6 +349,65 @@ final class JsonApiQueryBuilder
         return $this;
     }
 
+    /**
+     * Run this query without a scope, on purpose.
+     *
+     * Only meaningful for an entity declared scoped via
+     * `JsonApiConfigurator::scopeBy()`, whose builder otherwise refuses to
+     * execute unscoped. The point is that the escape is written down: an
+     * admin-wide report or a console command says so at the call site, and a
+     * reviewer can see the difference between "global by intent" and "nobody
+     * remembered".
+     */
+    public function withoutScope(): self
+    {
+        $this->scopeWaived = true;
+
+        return $this;
+    }
+
+    /**
+     * Refuse to execute when the resource is declared scoped and this builder
+     * has no value for one of the scoped fields.
+     *
+     * Checked at execution rather than when scope() is called, because the
+     * order of the fluent calls is the caller's business — what matters is the
+     * state at the moment a query would run.
+     *
+     * @throws InvalidArgumentException
+     */
+    private function assertScopeSatisfied(): void
+    {
+        if ($this->scopeWaived) {
+            return;
+        }
+
+        /** @var list<string> $required */
+        $required = $this->config[$this->resourceClass]['scope_by'] ?? [];
+
+        $missing = [];
+
+        foreach ($required as $field) {
+            // Resolved the same way scope() resolves it, so a declaration
+            // naming an association matches a scope set on that association.
+            $column = $this->resolveScopeColumn($field);
+
+            if (!array_key_exists($column, $this->scope)) {
+                $missing[] = $field;
+            }
+        }
+
+        if ($missing !== []) {
+            throw new InvalidArgumentException(sprintf(
+                '%s is declared scoped by "%s"; no scope was set for %s. '
+                . 'Call scope([...]) with the caller\'s partition, or withoutScope() if this query is global on purpose.',
+                $this->resourceClass,
+                implode('", "', $required),
+                '"' . implode('", "', $missing) . '"',
+            ));
+        }
+    }
+
     public function debug(): self
     {
         $this->debug = true;
@@ -377,6 +445,10 @@ final class JsonApiQueryBuilder
 
     private function aggregate(string $method, string $column = '*'): float|int
     {
+        // Aggregates leak just as much as rows: an unscoped COUNT tells you how
+        // many records the other tenants have.
+        $this->assertScopeSatisfied();
+
         if ($column !== '*') {
             $this->validateFields([$column]);
         }
@@ -414,6 +486,7 @@ final class JsonApiQueryBuilder
      */
     public function get(): array
     {
+        $this->assertScopeSatisfied();
         $this->resolveIdentifier();
 
         $result = match ($this->operation) {

@@ -25,6 +25,9 @@ class JsonApiConfigurator
      */
     private array $roles = [];
 
+    /** @var array<class-string, list<string>> */
+    private array $scopeBy = [];
+
     /**
      * @var array<string, array<string, mixed>>|null
      */
@@ -121,6 +124,59 @@ class JsonApiConfigurator
     }
 
     /**
+     * Declare that this entity's rows are partitioned, and by which field(s).
+     *
+     * The counterpart to roles(): roles answer *who may call this*, a scope
+     * answers *which rows they may touch*. Roles are declarative and therefore
+     * unforgettable — the route loader writes them onto the route and the
+     * kernel enforces them. A scope was only ever imperative: the caller had
+     * to remember `$builder->scope([...])`, and a caller who did not got every
+     * row of every tenant, silently and successfully.
+     *
+     * Declaring it here closes that asymmetry. A builder for an entity
+     * declared scoped refuses to execute unless a value has been supplied for
+     * each named field — it throws rather than running the query, so the
+     * omission surfaces on the first request in development instead of as a
+     * leak in production. Resources that really are global declare nothing and
+     * are unaffected.
+     *
+     * ```php
+     * $configurator
+     *     ->roles(Project::class, ['ROLE_ADMIN'])
+     *     ->scopeBy(Project::class, 'account');
+     * ```
+     *
+     * Field names are the API field names, resolved to columns the same way
+     * `scope()` resolves them. Pass `withoutScope()` on the builder to run a
+     * deliberately unscoped query — an admin-wide report, a console command —
+     * so that the exception is escaped on purpose and in writing.
+     *
+     * @param class-string        $entityClass
+     * @param string|list<string> $fields
+     */
+    public function scopeBy(string $entityClass, string|array $fields): self
+    {
+        $names = array_values(array_filter(
+            array_map(static fn (mixed $f): string => trim((string) $f), (array) $fields),
+            static fn (string $f): bool => $f !== '',
+        ));
+
+        if ($names === []) {
+            // An empty declaration would read as "scoped" while requiring
+            // nothing — the worst of both, so it is refused outright.
+            throw new \InvalidArgumentException(sprintf(
+                'scopeBy() for "%s" needs at least one field; pass none at all if the resource is global.',
+                $entityClass,
+            ));
+        }
+
+        $this->scopeBy[$entityClass] = $names;
+        $this->config = null; // Clear cache
+
+        return $this;
+    }
+
+    /**
      * Normalise a roles declaration: drop empty role names (an empty string
      * would become a role nobody can hold and silently lock the resource),
      * and reject unknown keys in the split shape outright — a misspelled
@@ -197,6 +253,7 @@ class JsonApiConfigurator
                 'relationships' => $entityClass::getApiRelationships(),
                 'operations' => $entityClass::getApiOperations(),
                 'roles' => $this->roles[$entityClass] ?? [],
+                'scope_by' => $this->scopeBy[$entityClass] ?? [],
             ];
         }
 
