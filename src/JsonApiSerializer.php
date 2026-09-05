@@ -220,12 +220,19 @@ class JsonApiSerializer
         $result = [];
 
         foreach ($sortFields as $field) {
-            $field = trim($field);
-            if (str_starts_with($field, '-')) {
-                $result[substr($field, 1)] = 'DESC';
-            } else {
-                $result[$field] = 'ASC';
+            $field     = trim($field);
+            $direction = str_starts_with($field, '-') ? 'DESC' : 'ASC';
+            $field     = ltrim($field, '-');
+
+            // `?sort=`, `?sort=name,` and `?sort=-` all name no field. Skipping
+            // them here keeps an empty sort indistinguishable from an absent
+            // one, as JsonApiUrlParser already treats it, instead of handing
+            // callers a sort keyed by the empty string.
+            if ($field === '') {
+                continue;
             }
+
+            $result[$field] = $direction;
         }
 
         return $result;

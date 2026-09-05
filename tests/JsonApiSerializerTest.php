@@ -239,6 +239,21 @@ class JsonApiSerializerTest extends TestCase
         $this->assertEmpty($result);
     }
 
+    /**
+     * An empty sort is no sort. A client clearing its sort column sends
+     * `?sort=`; that must parse the same as no param at all, not as a sort
+     * on the empty string that every consumer then has to special-case.
+     */
+    public function testParseSortParamsSkipsFieldsWithNoName(): void
+    {
+        $this->assertSame([], JsonApiSerializer::parseSortParams(['sort' => '']));
+        $this->assertSame([], JsonApiSerializer::parseSortParams(['sort' => '-']));
+        $this->assertSame(
+            ['name' => 'ASC', 'created_at' => 'DESC'],
+            JsonApiSerializer::parseSortParams(['sort' => 'name,,-created_at,']),
+        );
+    }
+
     public function testParseIncludeParams(): void
     {
         $queryParams = [
