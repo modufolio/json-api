@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While the project is in the `0.x` series the public API is not considered stable:
 behaviour may change in any minor release.
 
+## [Unreleased]
+
+## [0.8.0] - 2026-09-05
+
+### Added
+
+- **`JsonApiConfigurator::scopeBy()` — a required scope.** Row scoping was
+  enforced uniformly on every operation, but only once `scope()` had been
+  called; nothing noticed when it had not, and the query then ran successfully
+  across every tenant. Declaring `scopeBy(Project::class, 'owner')` makes a
+  builder for that resource refuse to execute — `get()` and the aggregates
+  alike — until a value is supplied for the named field, so the omission is an
+  exception on the first request rather than a leak in production.
+
+  This restores the symmetry with `roles()`, which was always declarative and
+  therefore unforgettable. Resources declaring no `scopeBy` are unaffected.
+  See [docs/query-builder.md](docs/query-builder.md#requiring-a-scope).
+- `JsonApiQueryBuilder::withoutScope()` — run a deliberately global query
+  against a scoped resource. Written at the call site so a reviewer can tell
+  "global on purpose" from "nobody remembered"; like the scope itself, it is
+  not cleared by `reset()`.
+
+### Fixed
+
+- **`JsonApiSerializer::parseSortParams()` treats an empty sort as no sort.**
+  `?sort=` — what a client sends when it clears its sort column — parsed to
+  `['' => 'ASC']`, a sort on the empty string that every consumer then had to
+  recognise and discard; the panel's record navigation reversed it and walked
+  the wrong way. Fields with no name (`?sort=`, `?sort=-`, a trailing comma)
+  are now skipped, as `JsonApiUrlParser` already did, so an empty sort and an
+  absent one parse identically.
+
 ## [0.7.0] - 2026-08-27
 
 ### Upgrading
