@@ -270,6 +270,47 @@ What each operation does with the scope:
 | `delete` | Rows outside the scope are not deleted; the result is `['data' => null]` |
 | `create` | Scalar and `null` entries **overwrite** the client's value for that column, so the new row lands inside the scope; a list entry requires the client's value to be one of the allowed ones |
 
+### Requiring a scope
+
+`scope()` enforces a partition once it is set. Nothing noticed when it was not
+set, and the query then ran successfully across every tenant — the one
+unguarded case in an otherwise uniform mechanism.
+
+`scopeBy()` closes it, declaratively, next to `roles()`:
+
+```php
+$configurator
+    ->roles(Project::class, ['ROLE_ADMIN'])   // who may call this
+    ->scopeBy(Project::class, 'owner');       // which rows they may touch
+```
+
+A builder for a resource declared scoped refuses to execute — `get()` and the
+aggregates alike — until a value has been supplied for each named field:
+
+```
+Project is declared scoped by "owner"; no scope was set for "owner".
+Call scope([...]) with the caller's partition, or withoutScope() if this
+query is global on purpose.
+```
+
+The symmetry is the point. `roles()` was always declarative, so it could not be
+forgotten: the route loader writes it onto the route and the kernel enforces it.
+Scoping was the caller's job to remember, and a caller who forgot got every
+row — successfully, with no error to notice.
+
+Genuinely global queries stay possible, but say so:
+
+```php
+$builder->withoutScope()->operation('index')->get();   // an admin report
+```
+
+`withoutScope()` exists so a reviewer can tell "global on purpose" apart from
+"nobody remembered". Like the scope itself, the waiver survives `reset()`:
+revoking it on reuse would swap a deliberate decision for an accidental one.
+
+Resources that declare no `scopeBy` are unaffected — this is not a tax on every
+entity in the config.
+
 Two properties worth knowing:
 
 - **Scope values must come from trusted context** (the authenticated user, the
