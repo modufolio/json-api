@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modufolio\JsonApi;
 
 use InvalidArgumentException;
+use Modufolio\JsonApi\Exception\ResourceTypeConflict;
 
 /**
  * Deserializes JSON:API request payloads
@@ -39,15 +40,23 @@ class JsonApiRequestDeserializer
             throw new InvalidArgumentException('JSON:API "data" member must be an object');
         }
 
-        // Validate type if required
+        // Validate type if required. Both failures are a 409: the body is not
+        // malformed, it addresses a different collection than the endpoint.
         if ($requireType) {
             if (!isset($data['type'])) {
-                throw new InvalidArgumentException('JSON:API resource object must have a "type" member');
+                throw new ResourceTypeConflict(
+                    $expectedType,
+                    null,
+                    'JSON:API resource object must have a "type" member'
+                );
             }
 
             if ($data['type'] !== $expectedType) {
-                throw new InvalidArgumentException(
-                    sprintf('Expected resource type "%s", got "%s"', $expectedType, $data['type'])
+                $actual = is_string($data['type']) ? $data['type'] : null;
+                throw new ResourceTypeConflict(
+                    $expectedType,
+                    $actual,
+                    sprintf('Expected resource type "%s", got "%s"', $expectedType, $actual ?? gettype($data['type']))
                 );
             }
         }

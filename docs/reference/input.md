@@ -19,7 +19,7 @@ public function isSupported(string $contentType): bool
 
 | Method | Purpose |
 |--------|---------|
-| `normalize($payload, $contentType, $type)` | Returns `['attributes' => [...], 'relationships' => [...]]`, validating the JSON:API `type` when the body is JSON:API. |
+| `normalize($payload, $contentType, $type)` | Returns `['attributes' => [...], 'relationships' => [...]]`. A JSON:API body whose `data.type` is missing or differs from `$type` throws `ResourceTypeConflict` (409). |
 | `mergeData($normalized)` | Flattens the normalized structure into a single `[field => value]` array. |
 | `isJsonApiFormat($payload)` | True if the payload has a JSON:API `data` envelope. |
 | `detectContentType($header)` | Resolves a raw `Content-Type` header to a supported media type. |
@@ -41,7 +41,7 @@ public function deserialize(array $payload, string $expectedType, bool $requireT
 public function mergeData(array $attributes, array $relationships): array
 ```
 
-`deserialize()` returns `['attributes' => [...], 'relationships' => [...]]`. When `$requireType` is true it validates the body's `type` against `$expectedType`.
+`deserialize()` returns `['attributes' => [...], 'relationships' => [...]]`. When `$requireType` is true it validates the body's `type` against `$expectedType`, throwing `ResourceTypeConflict` (409) when it is missing or different.
 
 ## AttributeCaster
 

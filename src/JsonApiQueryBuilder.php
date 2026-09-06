@@ -104,7 +104,11 @@ final class JsonApiQueryBuilder
 
     public function applyParams(JsonApiQueryParams $params): self
     {
-        if ($params->fields) {
+        if ($params->sparseFields) {
+            // The full per-type map: narrows included resources as well as
+            // the primary one.
+            $this->fields($params->sparseFields);
+        } elseif ($params->fields) {
             $this->fields($params->fields);
         }
 
@@ -1636,7 +1640,12 @@ final class JsonApiQueryBuilder
                 // This is a relationship foreign key
                 // Extract relationship name from key like "_rel_organization_id"
                 $relName = substr($key, 5, -3); // Remove "_rel_" prefix and "_id" suffix
-                if ($value !== null) {
+                if ($value === null) {
+                    // A known to-one that is currently empty. JSON:API spells
+                    // that `{"data": null}`; omitting the member would read as
+                    // "not exposed", which a null foreign key is not.
+                    $relationships[$relName] = ['data' => null];
+                } else {
                     $mapping = $this->meta->getAssociationMapping($relName);
                     $targetEntity = $mapping['targetEntity'];
                     $resourceKey = $this->config[$targetEntity]['resource_key'] ?? $relName;

@@ -143,7 +143,7 @@ These are **not** configuration keys — they are request parameters, constraine
 |---------|-------------------|----------------|-------------|
 | Sorting | `?sort=-publishedAt,title` | `fields` | `JsonApiQueryParams::$sort` |
 | Inclusion | `?include=author,comments` | `relationships` | `JsonApiQueryParams::$include` |
-| Sparse fieldsets | `?fields[articles]=id,title` | `fields` | `JsonApiQueryParams::$fields` |
+| Sparse fieldsets | `?fields[articles]=id,title&fields[authors]=name` | `fields` of each type | `JsonApiQueryParams::$sparseFields` (the primary resource's also in `$fields`) |
 | Pagination | `?page[number]=2&page[size]=20` | page-size cap | `JsonApiQueryParams::$page` |
 
 `JsonApiUrlParser::parse()` turns the request into a `JsonApiQueryParams`, which you hand to the query builder with `applyParams()`. A client may sort by any field in `fields` and include any relationship in `relationships` — there is no separate allow-list to maintain.

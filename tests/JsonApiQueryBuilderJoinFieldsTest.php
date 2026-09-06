@@ -6,10 +6,12 @@ namespace Modufolio\JsonApi\Tests;
 
 use Doctrine\ORM\EntityManager;
 use Modufolio\JsonApi\JsonApiQueryBuilder;
+use Modufolio\JsonApi\JsonApiUrlParser;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Account;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Contact;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Organization;
 use Modufolio\JsonApi\Tests\Fixtures\TestDatabaseSetup;
+use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -183,5 +185,29 @@ class JsonApiQueryBuilderJoinFieldsTest extends TestCase
 
         self::assertStringContainsString('page[number]=2', $uri);
         self::assertStringContainsString('page[size]=5', $uri);
+    }
+
+
+    /**
+     * The URL form of the same request. The parser used to hand the builder
+     * only the primary resource's fieldset, so `fields[organization]=name`
+     * never reached the join and every organization column came back.
+     */
+    public function testSparseFieldsetFromTheUrlNarrowsAJoinedToOne(): void
+    {
+        $request = (new ServerRequest('GET', '/contact'))->withQueryParams([
+            'include' => 'organization',
+            'fields'  => ['contact' => 'firstName', 'organization' => 'name'],
+        ]);
+        $params = (new JsonApiUrlParser($this->config))->parse($request, Contact::class);
+
+        $result = $this->builder()->applyParams($params)->operation('index')->get();
+
+        $attributes = $result['data'][0]['attributes'];
+
+        self::assertSame('John', $attributes['first_name']);
+        self::assertArrayNotHasKey('last_name', $attributes);
+        self::assertSame('Acme Labs', $attributes['organization_name']);
+        self::assertArrayNotHasKey('organization_email', $attributes);
     }
 }

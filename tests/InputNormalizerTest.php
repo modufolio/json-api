@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modufolio\JsonApi\Tests;
 
+use Modufolio\JsonApi\Exception\ResourceTypeConflict;
 use Modufolio\JsonApi\InputNormalizer;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
@@ -511,5 +512,55 @@ class InputNormalizerTest extends TestCase
             ]
         ];
         $this->assertEquals($expected, $result);
+    }
+
+
+    public function testJsonApiBodyWithWrongTypeIsRejected(): void
+    {
+        $payload = [
+            'data' => [
+                'type' => 'users',
+                'attributes' => ['name' => 'John Doe'],
+            ],
+        ];
+
+        try {
+            $this->normalizer->normalize($payload, 'application/vnd.api+json', 'articles');
+            $this->fail('Expected ResourceTypeConflict');
+        } catch (ResourceTypeConflict $e) {
+            // Still an InvalidArgumentException for callers written before the type existed.
+            $this->assertInstanceOf(InvalidArgumentException::class, $e);
+            $this->assertSame(409, $e->getStatus());
+            $this->assertSame('articles', $e->getExpectedType());
+            $this->assertSame('users', $e->getActualType());
+            $this->assertSame(['pointer' => '/data/type'], $e->getSource());
+            $this->assertSame('Expected resource type "articles", got "users"', $e->getMessage());
+        }
+    }
+
+    public function testJsonApiBodyWithoutTypeIsRejected(): void
+    {
+        $payload = [
+            'data' => [
+                'attributes' => ['name' => 'John Doe'],
+            ],
+        ];
+
+        try {
+            $this->normalizer->normalize($payload, 'application/vnd.api+json', 'articles');
+            $this->fail('Expected ResourceTypeConflict');
+        } catch (ResourceTypeConflict $e) {
+            $this->assertSame(409, $e->getStatus());
+            $this->assertSame('articles', $e->getExpectedType());
+            $this->assertNull($e->getActualType());
+            $this->assertStringContainsString('must have a "type" member', $e->getMessage());
+        }
+    }
+
+    public function testPlainJsonBodyNeedsNoType(): void
+    {
+        $result = $this->normalizer->normalize(['name' => 'John Doe'], 'application/json', 'articles');
+
+        $this->assertSame(['name' => 'John Doe'], $result['attributes']);
     }
 }

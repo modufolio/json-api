@@ -91,7 +91,9 @@ class InputNormalizer
      */
     private function normalizeJsonApi(array $payload, string $expectedResourceType): array
     {
-        return $this->jsonApiDeserializer->deserialize($payload, $expectedResourceType, requireType: false);
+        // The body's `type` must name the resource the endpoint serves: a
+        // POST /articles carrying `type: "users"` is a conflict, not a request.
+        return $this->jsonApiDeserializer->deserialize($payload, $expectedResourceType, requireType: true);
     }
 
     /**

@@ -12,13 +12,16 @@ namespace Modufolio\JsonApi;
 class JsonApiQueryParams
 {
     /**
-     * @param list<string>         $fields
-     * @param array<string, mixed> $filter
-     * @param list<string>         $include
-     * @param list<string>         $sort
-     * @param array<string, mixed> $page
-     * @param list<string>         $group
-     * @param array<string, mixed> $having
+     * @param list<string>                $fields       Sparse fieldset of the primary resource
+     * @param array<string, mixed>        $filter
+     * @param list<string>                $include
+     * @param list<string>                $sort
+     * @param array<string, mixed>        $page
+     * @param list<string>                $group
+     * @param array<string, mixed>        $having
+     * @param array<string, list<string>> $sparseFields Every sparse fieldset the client sent,
+     *                                                  keyed by resource type — the primary
+     *                                                  resource's and any included one's
      */
     public function __construct(
         public array $fields = [],
@@ -28,7 +31,8 @@ class JsonApiQueryParams
         public array $page = ['number' => 1, 'size' => 10],
         public array $group = [],
         public array $having = ['query' => '', 'bindings' => []],
-        public ?string $id = null
+        public ?string $id = null,
+        public array $sparseFields = [],
     ) {
     }
 }

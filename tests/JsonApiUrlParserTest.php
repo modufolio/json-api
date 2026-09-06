@@ -2,6 +2,7 @@
 
 namespace Modufolio\JsonApi\Tests;
 
+use Modufolio\JsonApi\Exception\QueryParamMalformed;
 use Modufolio\JsonApi\JsonApiQueryParams;
 use Modufolio\JsonApi\JsonApiUrlParser;
 use Nyholm\Psr7\ServerRequest;
@@ -299,5 +300,103 @@ class JsonApiUrlParserTest extends TestCase
         ];
 
         $this->assertEquals($expectedFilters, $params->filter);
+    }
+
+
+    // ── Sparse fieldsets for included resources ────────────────────────────
+
+    private function parserWithAuthors(): JsonApiUrlParser
+    {
+        return new JsonApiUrlParser([
+            'App\\Entity\\Post' => [
+                'resource_key'  => 'posts',
+                'fields'        => ['id', 'title', 'body'],
+                'relationships' => ['author'],
+            ],
+            'App\\Entity\\Author' => [
+                'resource_key'  => 'authors',
+                'fields'        => ['id', 'name', 'email'],
+                'relationships' => [],
+            ],
+        ]);
+    }
+
+    public function testFieldsetsForIncludedTypesAreKept(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))->withQueryParams([
+            'include' => 'author',
+            'fields'  => ['posts' => 'title', 'authors' => 'name'],
+        ]);
+
+        $params = $this->parserWithAuthors()->parse($request, 'App\\Entity\\Post');
+
+        $this->assertSame(['title'], $params->fields);
+        $this->assertSame(['posts' => ['title'], 'authors' => ['name']], $params->sparseFields);
+    }
+
+    public function testIncludedFieldsetIsNarrowedByItsOwnAllowList(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))->withQueryParams([
+            'fields' => ['authors' => 'name,password,title'],
+        ]);
+
+        $params = $this->parserWithAuthors()->parse($request, 'App\\Entity\\Post');
+
+        // `title` is a post field, not an author one; `password` is exposed nowhere.
+        $this->assertSame([], $params->fields);
+        $this->assertSame(['authors' => ['name']], $params->sparseFields);
+    }
+
+    public function testFieldsetForUnknownTypeIsIgnored(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))->withQueryParams([
+            'fields' => ['nope' => 'id', 'authors' => 'secret'],
+        ]);
+
+        $params = $this->parserWithAuthors()->parse($request, 'App\\Entity\\Post');
+
+        $this->assertSame([], $params->sparseFields);
+    }
+
+    // ── Malformed parameter shapes ────────────────────────────────────────
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, string}>
+     */
+    public static function malformedShapes(): iterable
+    {
+        yield 'fields[posts][]=title' => [['fields' => ['posts' => ['title']]], 'fields[posts]'];
+        yield 'fields=title' => [['fields' => 'title'], 'fields'];
+        yield 'include[]=author' => [['include' => ['author']], 'include'];
+        yield 'sort[]=title' => [['sort' => ['title']], 'sort'];
+    }
+
+    /**
+     * @dataProvider malformedShapes
+     *
+     * @param array<string, mixed> $query
+     */
+    public function testArrayShapedScalarParamIsAClientError(array $query, string $param): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))->withQueryParams($query);
+
+        try {
+            $this->parser->parse($request, 'App\\Entity\\Post');
+            $this->fail('Expected QueryParamMalformed');
+        } catch (QueryParamMalformed $e) {
+            $this->assertSame($param, $e->getQueryParam());
+            $this->assertSame(400, $e->getStatus());
+        }
+    }
+
+    public function testArrayShapedFieldsetOfAnUnknownTypeIsIgnoredNotRejected(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))->withQueryParams([
+            'fields' => ['nope' => ['id']],
+        ]);
+
+        $params = $this->parser->parse($request, 'App\\Entity\\Post');
+
+        $this->assertSame([], $params->sparseFields);
     }
 }

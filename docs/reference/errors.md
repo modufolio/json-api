@@ -34,16 +34,23 @@ between releases; the code is not.
 | `QueryParamMalformed` | 400 | `QUERY_PARAM_MALFORMED` | the parameter, as the client wrote it |
 | `InclusionUnrecognized` | 400 | `INCLUSION_UNRECOGNIZED` | `parameter: include` |
 | `FieldUnrecognized` | 400 | `FIELD_UNRECOGNIZED` | `parameter: fields` |
+| `ResourceTypeConflict` | 409 | `RESOURCE_TYPE_CONFLICT` | `pointer: /data/type` |
 
 Each also exposes the input that caused it — `getMediaType()`, `getFields()`,
-`getIncludePath()`, `getQueryParam()`, `getId()` — so a handler can log or
-re-render it without parsing the message.
+`getIncludePath()`, `getQueryParam()`, `getId()`, `getExpectedType()` and
+`getActualType()` — so a handler can log or re-render it without parsing the
+message.
 
 ## Which the library throws
 
 `JsonApiQueryBuilder` raises `FieldUnrecognized` from its allow-list check and
 `InclusionUnrecognized` for an `include` path that names an unknown
-relationship, nests too deeply, or nests through a to-many. The remaining types
+relationship, nests too deeply, or nests through a to-many. `JsonApiUrlParser`
+raises `QueryParamMalformed` for a `fields`, `include` or `sort` value that is
+not a comma-separated string. `JsonApiRequestDeserializer` — and so
+`InputNormalizer` — raises `ResourceTypeConflict` when a JSON:API body carries
+no `type`, or one other than the endpoint's; the specification requires a 409
+there rather than a 400. The remaining types
 are vocabulary for your own controller: the builder does not perform content
 negotiation, and reports a missing record as `['data' => null]` rather than
 throwing, so the caller can decide between a 404 and a null relationship.

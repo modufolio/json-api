@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Modufolio\JsonApi;
 
 use InvalidArgumentException;
+use Modufolio\JsonApi\Exception\QueryParamMalformed;
 use Psr\Http\Message\ServerRequestInterface;
 
 class JsonApiUrlParser
@@ -28,15 +29,30 @@ class JsonApiUrlParser
         $allowedFields = $this->config[$entityClass]['fields'] ?? [];
         $allowedRelationships = $this->config[$entityClass]['relationships'] ?? [];
 
-        // Parse fields
-        $fields = [];
-        if (isset($queryParams['fields'][$resourceKey])) {
-            $requestedFields = explode(',', $queryParams['fields'][$resourceKey]);
-            $fields = array_values(array_filter(
-                array_map('trim', $requestedFields),
-                fn ($field) => in_array($field, $allowedFields, true)
-            ));
+        // Parse fields — one sparse fieldset per resource type, each narrowed
+        // by that type's own allow-list. Types no resource is configured for
+        // are ignored; a fieldset that is not a string is a client error.
+        $sparseFields = [];
+        if (isset($queryParams['fields'])) {
+            if (!is_array($queryParams['fields'])) {
+                throw new QueryParamMalformed('fields', 'fields must be keyed by resource type, as fields[type]=a,b');
+            }
+            foreach ($queryParams['fields'] as $type => $list) {
+                $typeFields = $this->configFor((string) $type)['fields'] ?? null;
+                if ($typeFields === null) {
+                    continue;
+                }
+                $requested = $this->scalarList("fields[$type]", $list);
+                $requested = array_values(array_filter(
+                    $requested,
+                    fn ($field) => in_array($field, $typeFields, true)
+                ));
+                if ($requested !== []) {
+                    $sparseFields[(string) $type] = $requested;
+                }
+            }
         }
+        $fields = $sparseFields[$resourceKey] ?? [];
 
         // Parse filter with improved validation
         $filter = [];
@@ -47,9 +63,9 @@ class JsonApiUrlParser
         // Parse include
         $include = [];
         if (isset($queryParams['include'])) {
-            $requestedIncludes = explode(',', $queryParams['include']);
+            $requestedIncludes = $this->scalarList('include', $queryParams['include']);
             $include = array_values(array_filter(
-                array_map('trim', $requestedIncludes),
+                $requestedIncludes,
                 fn ($rel) => in_array($rel, $allowedRelationships, true)
             ));
         }
@@ -57,9 +73,8 @@ class JsonApiUrlParser
         // Parse sort
         $sort = [];
         if (isset($queryParams['sort'])) {
-            $sortFields = explode(',', $queryParams['sort']);
+            $sortFields = $this->scalarList('sort', $queryParams['sort']);
             foreach ($sortFields as $field) {
-                $field = trim($field);
                 if (empty($field)) {
                     continue;
                 }
@@ -116,8 +131,44 @@ class JsonApiUrlParser
             page: $page,
             group: $group,
             having: $having,
-            id: $id
+            id: $id,
+            sparseFields: $sparseFields,
         );
+    }
+
+    /**
+     * Split a comma-separated query value into trimmed members.
+     *
+     * `include[]=author` or `fields[posts][]=title` arrives as an array, which
+     * `explode()` would reject with a TypeError. That is a malformed request,
+     * so it is reported as one — with the parameter named — rather than as a
+     * server error.
+     *
+     * @return list<string>
+     */
+    private function scalarList(string $param, mixed $value): array
+    {
+        if (!is_string($value)) {
+            throw new QueryParamMalformed($param, "$param must be a comma-separated string");
+        }
+
+        return array_map('trim', explode(',', $value));
+    }
+
+    /**
+     * The configuration of the resource served under a JSON:API type.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function configFor(string $resourceKey): ?array
+    {
+        foreach ($this->config as $entityConfig) {
+            if (($entityConfig['resource_key'] ?? null) === $resourceKey) {
+                return $entityConfig;
+            }
+        }
+
+        return null;
     }
 
     /**

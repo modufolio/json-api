@@ -12,6 +12,7 @@ use Modufolio\JsonApi\Exception\MediaTypeUnacceptable;
 use Modufolio\JsonApi\Exception\MediaTypeUnsupported;
 use Modufolio\JsonApi\Exception\QueryParamMalformed;
 use Modufolio\JsonApi\Exception\ResourceNotFound;
+use Modufolio\JsonApi\Exception\ResourceTypeConflict;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -40,6 +41,7 @@ class JsonApiExceptionTest extends TestCase
         $this->assertSame(400, (new QueryParamMalformed('page[size]', 'Not a number.'))->getStatus());
         $this->assertSame(400, (new InclusionUnrecognized('author', 'Unknown include.'))->getStatus());
         $this->assertSame(400, (new FieldUnrecognized(['nope']))->getStatus());
+        $this->assertSame(409, (new ResourceTypeConflict('articles', 'users', 'Wrong type.'))->getStatus());
     }
 
     /**
@@ -52,6 +54,7 @@ class JsonApiExceptionTest extends TestCase
         $this->assertSame('QUERY_PARAM_MALFORMED', (new QueryParamMalformed('sort', 'Bad.'))->getErrorCode());
         $this->assertSame('INCLUSION_UNRECOGNIZED', (new InclusionUnrecognized('a.b', 'Bad.'))->getErrorCode());
         $this->assertSame('FIELD_UNRECOGNIZED', (new FieldUnrecognized(['nope']))->getErrorCode());
+        $this->assertSame('RESOURCE_TYPE_CONFLICT', (new ResourceTypeConflict('articles', 'users', 'Wrong type.'))->getErrorCode());
     }
 
     public function testSourceNamesTheOffendingParameter(): void
@@ -60,6 +63,21 @@ class JsonApiExceptionTest extends TestCase
         $this->assertSame(['parameter' => 'include'], (new InclusionUnrecognized('a.b', 'Bad.'))->getSource());
         $this->assertSame(['parameter' => 'content-type'], (new MediaTypeUnsupported('text/xml'))->getSource());
         $this->assertSame(['parameter' => 'accept'], (new MediaTypeUnacceptable('text/xml'))->getSource());
+    }
+
+    /**
+     * A wrong type is a fault in the body, not the query string, so the source
+     * is a JSON pointer rather than a parameter name.
+     */
+    public function testATypeConflictPointsIntoTheBody(): void
+    {
+        $conflict = new ResourceTypeConflict('articles', 'users', 'Wrong type.');
+
+        $this->assertSame(['pointer' => '/data/type'], $conflict->getSource());
+        $this->assertSame('articles', $conflict->getExpectedType());
+        $this->assertSame('users', $conflict->getActualType());
+        $this->assertNull((new ResourceTypeConflict('articles', null, 'No type.'))->getActualType());
+        $this->assertSame('The resource type conflicts with the endpoint', $conflict->toErrorObject()->jsonSerialize()['title']);
     }
 
     /**
@@ -107,6 +125,7 @@ class JsonApiExceptionTest extends TestCase
             new QueryParamMalformed('sort', 'Bad.'),
             new InclusionUnrecognized('a.b', 'Bad.'),
             new FieldUnrecognized(['nope']),
+            new ResourceTypeConflict('articles', 'users', 'Wrong type.'),
         ];
     }
 }
