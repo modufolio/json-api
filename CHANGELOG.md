@@ -9,6 +9,42 @@ behaviour may change in any minor release.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-06
+
+### Added
+
+- `Modufolio\JsonApi\Exception\ResourceTypeConflict` — a 409 with code
+  `RESOURCE_TYPE_CONFLICT` and a `source` pointer of `/data/type`, thrown by
+  `JsonApiRequestDeserializer` (and so `InputNormalizer`) when a JSON:API body
+  has no `type` or names one other than the endpoint's. The specification
+  reserves `409 Conflict` for exactly this; the other typed failures are all
+  4xx of a different kind. See [docs/reference/errors.md](docs/reference/errors.md).
+
+### Fixed
+
+- **`InputNormalizer` validates the JSON:API `type`.** A JSON:API body was
+  deserialized with type checking switched off, so `POST /articles` accepted
+  `"type": "users"` — or no type at all — despite the documentation saying
+  otherwise. A missing or mismatched type now throws `ResourceTypeConflict`
+  (409), which still extends `InvalidArgumentException`. Plain-JSON bodies are
+  unaffected.
+- **Sparse fieldsets for included resources reach the query.** `JsonApiUrlParser`
+  read only the primary resource's `fields[...]` entry, so the documented
+  `fields[authors]=name` was dropped on the way to the builder and every allowed
+  author field came back. The parser now keeps every fieldset, each narrowed by
+  its own resource's allow-list, in the new `JsonApiQueryParams::$sparseFields`;
+  `applyParams()` hands the whole map to the builder. `$fields` still holds the
+  primary resource's list.
+- **An empty to-one is serialized as `{"data": null}`.** A null foreign key
+  dropped the relationship member entirely, which a client cannot tell apart
+  from a relationship that is not exposed. JSON:API spells an empty to-one with
+  a null `data`, and that is what is emitted now.
+- **Array-shaped `fields`, `include` and `sort` are a client error.**
+  `include[]=author`, `sort[]=title` or `fields[posts][]=title` reached
+  `explode()` with an array and surfaced as an uncaught `TypeError`. They now
+  throw `QueryParamMalformed` (HTTP 400) naming the offending parameter, as a
+  bare `?fields=title` does too.
+
 ## [0.8.0] - 2026-09-05
 
 ### Added
