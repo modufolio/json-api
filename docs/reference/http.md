@@ -1,5 +1,76 @@
 # Reference: HTTP, pagination & utilities
 
+## MediaType
+
+Namespace: `Modufolio\JsonApi\Http` · `final`, immutable.
+
+One media type as it appears in a `Content-Type` or `Accept` header, with the
+JSON:API 1.1 `ext` and `profile` parameters parsed into URI lists and kept
+apart from every other parameter.
+
+```php
+public const JSON_API = 'application/vnd.api+json';
+
+public readonly string $type;          // lower-cased type/subtype
+public readonly array  $extensions;    // list<string> from ext
+public readonly array  $profiles;      // list<string> from profile
+public readonly array  $parameters;    // every other parameter, q excluded
+public readonly float  $quality;       // q, 1.0 when absent
+
+public static function jsonApi(array $extensions = [], array $profiles = []): self
+public static function parse(string $value): self          // one media type; InvalidArgumentException if not one
+public static function parseList(string $header): array    // an Accept header, most preferred first
+public function isJsonApi(): bool
+public function matchesJsonApi(): bool                     // the type itself, */* or application/*
+public function hasOnlyJsonApiParameters(): bool           // nothing but ext, profile, q
+public function withExtensions(array $extensions): self
+public function withProfiles(array $profiles): self
+public function toString(): string                         // ext and profile quoted, q dropped
+```
+
+```php
+$type = MediaType::parse('application/vnd.api+json; ext="https://jsonapi.org/ext/atomic"');
+$type->extensions;   // ['https://jsonapi.org/ext/atomic']
+(string) $type;      // 'application/vnd.api+json; ext="https://jsonapi.org/ext/atomic"'
+```
+
+## MediaTypeNegotiator
+
+Namespace: `Modufolio\JsonApi\Http` · `final`.
+
+Applies the JSON:API 1.1 content negotiation rules. Both methods return the
+`MediaType` the response must be sent as — the extensions and profiles both
+sides agreed on — for `ResponseFactory::jsonApi()` and
+`JsonApiDocument::setMediaType()`.
+
+```php
+public function __construct(array $supportedExtensions = [], array $supportedProfiles = [], array $otherContentTypes = [])
+public function negotiateContentType(string $header): MediaType   // throws MediaTypeUnsupported (415)
+public function negotiateAccept(string $header): MediaType        // throws MediaTypeUnacceptable (406)
+public function supportedExtensions(): array
+public function supportedProfiles(): array
+```
+
+| Situation | `negotiateContentType` | `negotiateAccept` |
+|-----------|------------------------|-------------------|
+| JSON:API type with a parameter other than `ext`/`profile` (`charset` included) | 415 | that instance is ignored |
+| `ext` naming an extension not in `$supportedExtensions` | 415 | that instance is ignored |
+| `profile` naming an unsupported profile | dropped from the result | dropped from the result |
+| A type listed in `$otherContentTypes` (`application/json`) | returned as-is, any parameters | — |
+| Header absent | 415 | plain JSON:API |
+| `*/*` or `application/*` | — | plain JSON:API |
+| No usable JSON:API instance left | — | 406 |
+
+```php
+$negotiator = new MediaTypeNegotiator(
+    supportedExtensions: [AtomicExtension::URI],
+    otherContentTypes: ['application/json'],
+);
+
+$requestType  = $negotiator->negotiateContentType($request->getHeaderLine('Content-Type'));
+$responseType = $negotiator->negotiateAccept($request->getHeaderLine('Accept'));
+```
+
 ## ResponseFactory
 
 Namespace: `Modufolio\JsonApi\Http` · `readonly` class.
@@ -8,14 +79,23 @@ Wraps PSR-17 factories to produce JSON:API responses.
 
 ```php
 public function __construct(ResponseFactoryInterface $responseFactory, StreamFactoryInterface $streamFactory)
+public function jsonApi(JsonApiDocument|array|string $document, int $status = 200, ?MediaType $mediaType = null, array $headers = []): ResponseInterface
 public function json(array|string $data, int $status = 200, array $headers = []): ResponseInterface
 public function empty(int $status = 204): ResponseInterface
 ```
 
+`jsonApi()` sets `Content-Type` to the JSON:API media type, modified by the
+`ext` and `profile` parameters of `$mediaType` when one is given — the
+specification requires a server to announce the extensions and profiles it
+applied. Pass the value the negotiator returned, and the same one to
+`JsonApiDocument::setMediaType()`. It also adds `Vary: Accept`, since the
+representation depends on that header. `json()` defaults to `application/json`.
+
 ```php
 $factory = new ResponseFactory($psr17ResponseFactory, $psr17StreamFactory);
 
-return $factory->json($document->toArray(), 200, ['Content-Type' => 'application/vnd.api+json']);
+$document->setMediaType($responseType);
+return $factory->jsonApi($document, 200, $responseType);
 // or, for a DELETE:
 return $factory->empty(204);
 ```

@@ -68,7 +68,7 @@ $result = $builder
 | `having(string $condition, array $bindings = []): self` | Add a `HAVING` clause — aggregates only, see below |
 | `operation(string $operation): self` | `index`, `show`, `create`, `update`, `delete` — checked against the resource's `operations` map |
 | `withId(string $id): self` | Target a single resource (used by `show`) |
-| `withData(array $data): self` | Supply data for mutations |
+| `withData(array $data): self` | Supply data for mutations, keyed by field name; an allowed to-one relationship whose foreign key lives on the row is written through its join column (`['organization' => 5]`, `null` to clear) |
 | `withTotalCount(): self` | Include the total row count in the result |
 | `scope(array $scope): self` | Row-level containment enforced on every operation — see [Row-level scoping](#row-level-scoping) |
 | `debug(): self` | Return the query and bindings instead of executing |

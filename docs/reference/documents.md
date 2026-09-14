@@ -14,11 +14,24 @@ public function setData($data): self          // ResourceObject | ResourceObject
 public function setErrors(array $errors): self // ErrorObject[]
 public function setMeta(array $meta): self
 public function setIncluded(array $included): self  // ResourceObject[]
-public function setLinks(array $links): self
-public function setJsonApi(array $jsonapi): self
+public function setLinks(array $links): self       // values: string | LinkObject | array | null
+public function setJsonApi(array $jsonapi): self   // replaces the whole jsonapi object
+public function setExtensions(array $extensions): self   // jsonapi.ext
+public function setProfiles(array $profiles): self       // jsonapi.profile
+public function setJsonApiMeta(array $meta): self        // jsonapi.meta
+public function setMediaType(MediaType $mediaType): self // ext + profile from a negotiated type
+public function getJsonApi(): array
 public function jsonSerialize(): array
 public function toArray(): array
 ```
+
+Every document starts with `jsonapi: {version: "1.1"}` (`JsonApiDocument::VERSION`).
+JSON:API 1.1 adds `ext`, `profile` and `meta` to that object; a document
+that uses an extension's members must list the extension in `ext`, and the
+response's `Content-Type` must carry the same list — `setMediaType()` and
+`ResponseFactory::jsonApi()` take the same `MediaType` so the two agree.
+The top-level `links` may carry `describedby` beside `self`, `related` and
+the pagination links.
 
 ```php
 $document = new JsonApiDocument();
@@ -40,6 +53,9 @@ public function setToOneRelationship(string $name, ?ResourceIdentifierObject $re
 public function setToManyRelationship(string $name, array $related, array $links = []): self
 public function setLinks(array $links): self
 public function setMeta(array $meta): self
+public function getType(): string
+public function getId(): ?string
+public function getLid(): ?string
 public function jsonSerialize(): array
 ```
 
@@ -60,21 +76,54 @@ public function setMeta(array $meta): self
 public function jsonSerialize(): array
 ```
 
+## LinkObject
+
+A JSON:API 1.1 link object, for any place a links array takes a value.
+`href` is required; the rest is emitted only when set.
+
+```php
+public function __construct(string $href)
+public function setRel(string $rel): self                          // RFC 8288 relation type
+public function setDescribedBy(string|LinkObject $describedBy): self // link to a schema / description document
+public function setTitle(string $title): self
+public function setType(string $type): self                        // media type of the target
+public function setHreflang(string|array $hreflang): self          // one RFC 5646 tag, or a list
+public function setMeta(array $meta): self
+public function getHref(): string
+public function jsonSerialize(): array
+public function toArray(): array
+```
+
+```php
+$document->setLinks([
+    'self'        => 'https://api.example.com/articles',
+    'describedby' => (new LinkObject('https://api.example.com/openapi.json'))
+        ->setType('application/vnd.oai.openapi+json'),
+]);
+```
+
 ## ErrorObject
 
 One entry in the `errors` array.
 
 ```php
 public function setId(string $id): self
-public function setLinks(array $links): self
+public function setLinks(array $links): self          // about, and (1.1) type
 public function setStatus(int $status): self
 public function setCode(string $code): self
 public function setTitle(string $title): self
 public function setDetail(string $detail): self
 public function setSource(array $source): self
+public function setSourcePointer(string $pointer): self      // source: {pointer}
+public function setSourceParameter(string $parameter): self  // source: {parameter}
+public function setSourceHeader(string $header): self        // source: {header}  (1.1)
 public function setMeta(array $meta): self
 public function jsonSerialize(): array
 ```
+
+The specification names three `source` members and says an error should
+carry one of them or none: `pointer` into the request document, `parameter`
+for a query parameter, and — new in 1.1 — `header` for a request header.
 
 ```php
 $error = (new ErrorObject())

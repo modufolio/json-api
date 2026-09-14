@@ -6,12 +6,14 @@ A PHP implementation of the [JSON:API](https://jsonapi.org/) specification for D
 
 ## Features
 
-- Full JSON:API 1.0 specification compliance
+- JSON:API 1.1: `ext`/`profile` content negotiation, link objects,
+  `jsonapi.ext`/`profile`/`meta`, `source.header`, local identifiers (`lid`)
+- The [Atomic Operations](docs/atomic-operations.md) extension: ordered,
+  transactional `add`/`update`/`remove` with `lid` resolution
 - Doctrine ORM integration
 - Flexible filtering system with custom filter support
 - Sorting, pagination, and sparse fieldsets
 - Relationship handling (to-one and to-many)
-- Content negotiation
 - Validation support via Symfony Validator
 - PSR-7 HTTP message interfaces
 
@@ -59,6 +61,7 @@ CI runs the full matrix on every push.
 - [Configuration](docs/configuration.md)
 - [Filtering](docs/filtering.md)
 - [Query Builder](docs/query-builder.md)
+- [Atomic Operations](docs/atomic-operations.md)
 - [API Reference](docs/reference/index.md)
 - [Errors](docs/reference/errors.md)
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modufolio\JsonApi;
 
 use InvalidArgumentException;
+use Modufolio\JsonApi\Exception\LidUnresolved;
 use Modufolio\JsonApi\Exception\ResourceTypeConflict;
 
 /**
@@ -15,19 +16,29 @@ use Modufolio\JsonApi\Exception\ResourceTypeConflict;
  * - Extracts attributes
  * - Extracts and normalizes relationships
  * - Validates resource type
+ * - Resolves JSON:API 1.1 local identifiers (`lid`) in relationship linkage
  */
 class JsonApiRequestDeserializer
 {
     /**
      * Deserialize a JSON:API request payload
      *
+     * The result carries the primary resource's `id` and `lid` (each null
+     * when absent) beside its attributes and relationships. A relationship
+     * identifier may name a `lid` instead of an `id`; it is resolved through
+     * `$lids`, which an atomic operations processor fills as it creates
+     * resources. Without a registry — a plain `POST` — a `lid` reference has
+     * nothing to resolve against and is rejected.
+     *
      * @param array<string, mixed> $payload The decoded JSON payload
      * @param string $expectedType The expected resource type
      * @param bool $requireType Whether to require and validate the type field
-     * @return array<string, mixed> ['attributes' => [...], 'relationships' => [...]]
+     * @param LidRegistry|null $lids Local identifiers already assigned in this request
+     * @return array{attributes: array<string, mixed>, relationships: array<string, mixed>, id: string|null, lid: string|null}
      * @throws InvalidArgumentException If the payload is invalid
+     * @throws LidUnresolved If a relationship names a `lid` the registry does not know
      */
-    public function deserialize(array $payload, string $expectedType, bool $requireType = true): array
+    public function deserialize(array $payload, string $expectedType, bool $requireType = true, ?LidRegistry $lids = null): array
     {
         // Validate top-level structure
         if (!isset($payload['data'])) {
@@ -77,13 +88,30 @@ class JsonApiRequestDeserializer
             }
 
             foreach ($data['relationships'] as $relationshipName => $relationshipData) {
-                $relationships[$relationshipName] = $this->normalizeRelationship($relationshipData, $relationshipName);
+                if (!is_array($relationshipData)) {
+                    throw new InvalidArgumentException(
+                        sprintf('Relationship "%s" must be an object', $relationshipName)
+                    );
+                }
+                $relationships[$relationshipName] = $this->normalizeRelationship($relationshipData, (string) $relationshipName, $lids);
             }
+        }
+
+        $id = $data['id'] ?? null;
+        $lid = $data['lid'] ?? null;
+
+        if ($id !== null && !is_scalar($id)) {
+            throw new InvalidArgumentException('JSON:API "id" member must be a string');
+        }
+        if ($lid !== null && !is_scalar($lid)) {
+            throw new InvalidArgumentException('JSON:API "lid" member must be a string');
         }
 
         return [
             'attributes' => $attributes,
             'relationships' => $relationships,
+            'id' => $id === null ? null : (string) $id,
+            'lid' => $lid === null ? null : (string) $lid,
         ];
     }
 
@@ -95,12 +123,15 @@ class JsonApiRequestDeserializer
      * - To-many: {"data": [{"type": "tag", "id": "1"}, {"type": "tag", "id": "2"}]} => [1, 2]
      * - Null: {"data": null} => null
      *
+     * A resource identifier may carry a `lid` instead of an `id` (JSON:API
+     * 1.1); it is resolved through `$lids` to the id the server assigned.
+     *
      * @param array<string, mixed> $relationshipData The relationship object
      * @param string $relationshipName The relationship name (for error messages)
      * @return int|array<int, int|string>|null The normalized relationship ID(s)
      * @throws InvalidArgumentException If the relationship format is invalid
      */
-    private function normalizeRelationship(array $relationshipData, string $relationshipName): int|array|null
+    private function normalizeRelationship(array $relationshipData, string $relationshipName, ?LidRegistry $lids): int|array|null
     {
         // array_key_exists, not isset: JSON:API allows `data: null` to clear a
         // to-one relationship. isset() treats a present-but-null value as
@@ -129,30 +160,61 @@ class JsonApiRequestDeserializer
                     );
                 }
 
-                if (!isset($resourceIdentifier['type']) || !isset($resourceIdentifier['id'])) {
-                    throw new InvalidArgumentException(
-                        sprintf('Relationship "%s" resource identifier must have "type" and "id" members', $relationshipName)
-                    );
-                }
-
-                $ids[] = $this->normalizeId($resourceIdentifier['id']);
+                $ids[] = $this->normalizeId($this->identifierId(
+                    $resourceIdentifier,
+                    $relationshipName,
+                    $lids,
+                    "/data/relationships/$relationshipName/data/$index",
+                ));
             }
             return $ids;
         }
 
         // Handle to-one relationship (single resource identifier)
         if (is_array($data)) {
-            if (!isset($data['type']) || !isset($data['id'])) {
-                throw new InvalidArgumentException(
-                    sprintf('Relationship "%s" resource identifier must have "type" and "id" members', $relationshipName)
-                );
-            }
-
-            return $this->normalizeId($data['id']);
+            return $this->normalizeId($this->identifierId(
+                $data,
+                $relationshipName,
+                $lids,
+                "/data/relationships/$relationshipName/data",
+            ));
         }
 
         throw new InvalidArgumentException(
             sprintf('Relationship "%s" data must be null, an object, or an array', $relationshipName)
+        );
+    }
+
+    /**
+     * The id a resource identifier object refers to.
+     *
+     * `{"type", "id"}` is the id itself. `{"type", "lid"}` names a resource
+     * created earlier in the same request; the registry says which id it got.
+     *
+     * @param array<string, mixed> $identifier
+     */
+    private function identifierId(array $identifier, string $relationshipName, ?LidRegistry $lids, string $pointer): mixed
+    {
+        if (!isset($identifier['type'])) {
+            throw new InvalidArgumentException(
+                sprintf('Relationship "%s" resource identifier must have a "type" member', $relationshipName)
+            );
+        }
+
+        if (isset($identifier['id'])) {
+            return $identifier['id'];
+        }
+
+        if (isset($identifier['lid'])) {
+            if ($lids === null) {
+                throw new LidUnresolved((string) $identifier['type'], (string) $identifier['lid'], $pointer);
+            }
+
+            return $lids->resolveIdentifier($identifier, $pointer);
+        }
+
+        throw new InvalidArgumentException(
+            sprintf('Relationship "%s" resource identifier must have "type" and "id" (or "lid") members', $relationshipName)
         );
     }
 

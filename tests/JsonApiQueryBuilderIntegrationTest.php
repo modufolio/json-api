@@ -10,6 +10,7 @@ use Modufolio\JsonApi\Tests\Fixtures\Entity\Contact;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Account;
 use Modufolio\JsonApi\Tests\Fixtures\TestDatabaseSetup;
 use Doctrine\ORM\EntityManager;
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
 class JsonApiQueryBuilderIntegrationTest extends TestCase
@@ -228,5 +229,52 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
         $this->assertStringContainsString('SELECT', $sql);
         $this->assertStringContainsString('first_name', $sql);
         $this->assertStringContainsString('email', $sql);
+    }
+
+    // ── To-one relationships on create and update ───────────────────────────
+
+    /**
+     * A to-one whose foreign key lives on the row is written through its
+     * join column, from the `['relationship' => id]` shape the deserializer
+     * produces. Null clears it.
+     */
+    public function testCreateAndUpdateWriteAToOneRelationship(): void
+    {
+        $account = $this->em->getRepository(Account::class)->findOneBy(['name' => 'Test Account']);
+        $this->assertNotNull($account);
+        $other = new Account();
+        $other->setName('Other');
+        $this->em->persist($other);
+        $this->em->flush();
+
+        $config = $this->config;
+        $config[Contact::class]['relationships'] = ['account', 'organization'];
+        $builder = fn () => new JsonApiQueryBuilder($config, $this->em, $this->em->getConnection(), Contact::class);
+
+        $created = $builder()
+            ->withData(['firstName' => 'New', 'lastName' => 'One', 'email' => 'new@test.com', 'account' => $account->getId()])
+            ->operation('create')
+            ->get();
+
+        $id = (string) $created['data']['id'];
+        $this->assertSame((string) $account->getId(), $created['data']['relationships']['account']['data']['id']);
+        $this->assertSame(['data' => null], $created['data']['relationships']['organization']);
+
+        $updated = $builder()->withId($id)->withData(['account' => $other->getId()])->operation('update')->get();
+        $this->assertSame((string) $other->getId(), $updated['data']['relationships']['account']['data']['id']);
+    }
+
+    public function testAToManyInWriteDataIsRefused(): void
+    {
+        $config = $this->config;
+        $config[Contact::class]['relationships'] = ['account', 'tags'];
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Relationship 'tags' is not written through this resource");
+
+        (new JsonApiQueryBuilder($config, $this->em, $this->em->getConnection(), Contact::class))
+            ->withData(['firstName' => 'X', 'lastName' => 'Y', 'email' => 'x@y.test', 'account' => 1, 'tags' => [1, 2]])
+            ->operation('create')
+            ->get();
     }
 }

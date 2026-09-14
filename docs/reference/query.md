@@ -7,7 +7,7 @@ Namespace: `Modufolio\JsonApi`
 Turns a PSR-7 request into a validated `JsonApiQueryParams`, using the resource config's `fields` / `relationships` as allow-lists.
 
 ```php
-public function __construct(array $config)
+public function __construct(array $config, bool $rejectUnknownQueryParams = false, array $customQueryParams = self::CUSTOM_QUERY_PARAMS)
 public function parse(ServerRequestInterface $request, string $entityClass): JsonApiQueryParams
 ```
 

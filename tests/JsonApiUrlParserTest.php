@@ -399,4 +399,73 @@ class JsonApiUrlParserTest extends TestCase
 
         $this->assertSame([], $params->sparseFields);
     }
+
+    // ── JSON:API 1.1: unknown query parameters ─────────────────────────────
+
+    /**
+     * "If a server encounters a query parameter that ... the server does not
+     * know how to process ... it MUST return 400 Bad Request." Opt-in.
+     */
+    public function testUnknownQueryParamIsA400WhenRejectionIsOn(): void
+    {
+        $parser = new JsonApiUrlParser($this->config(), rejectUnknownQueryParams: true);
+        $request = (new ServerRequest('GET', '/posts'))->withQueryParams(['sort' => 'title', 'utm_source' => 'x']);
+
+        try {
+            $parser->parse($request, 'App\\Entity\\Post');
+            $this->fail('Expected QueryParamMalformed');
+        } catch (QueryParamMalformed $e) {
+            $this->assertSame(400, $e->getStatus());
+            $this->assertSame(['parameter' => 'utm_source'], $e->getSource());
+        }
+    }
+
+    public function testSpecAndCustomParamsPassWhenRejectionIsOn(): void
+    {
+        $parser = new JsonApiUrlParser($this->config(), rejectUnknownQueryParams: true);
+        $request = (new ServerRequest('GET', '/posts'))->withQueryParams([
+            'fields' => ['posts' => 'title'],
+            'filter' => ['title' => 'x'],
+            'include' => 'author',
+            'sort' => 'title',
+            'page' => ['number' => '1'],
+            'group' => 'title',
+        ]);
+
+        $this->assertSame(['title'], $parser->parse($request, 'App\\Entity\\Post')->fields);
+    }
+
+    public function testCustomParamListReplacesTheDefault(): void
+    {
+        $parser = new JsonApiUrlParser($this->config(), rejectUnknownQueryParams: true, customQueryParams: ['cacheBust']);
+
+        $this->assertSame(
+            [],
+            $parser->parse((new ServerRequest('GET', '/posts'))->withQueryParams(['cacheBust' => '1']), 'App\\Entity\\Post')->filter,
+        );
+
+        $this->expectException(QueryParamMalformed::class);
+        $parser->parse((new ServerRequest('GET', '/posts'))->withQueryParams(['group' => 'title']), 'App\\Entity\\Post');
+    }
+
+    public function testUnknownQueryParamsAreIgnoredByDefault(): void
+    {
+        $request = (new ServerRequest('GET', '/posts'))->withQueryParams(['utm_source' => 'x']);
+
+        $this->assertSame([], $this->parser->parse($request, 'App\\Entity\\Post')->filter);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function config(): array
+    {
+        return [
+            'App\\Entity\\Post' => [
+                'resource_key'  => 'posts',
+                'fields'        => ['id', 'title', 'body', 'author'],
+                'relationships' => ['author', 'comments'],
+            ],
+        ];
+    }
 }

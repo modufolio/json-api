@@ -696,9 +696,7 @@ final class JsonApiQueryBuilder
      */
     private function executeCreate(): array
     {
-        $allowedFields = $this->getAllowedFields();
-        $data = array_intersect_key($this->data, array_flip($allowedFields));
-        $mappedData = $this->mapFieldsToColumns($data);
+        $mappedData = $this->writableColumns($this->data);
         $columns = array_column($this->meta->fieldMappings, 'columnName');
         if (in_array('created_at', $columns, true)) {
             $mappedData['created_at'] = date('Y-m-d H:i:s');
@@ -737,9 +735,7 @@ final class JsonApiQueryBuilder
         if (!$this->id) {
             throw new InvalidArgumentException('ID required for update operation');
         }
-        $allowedFields = $this->getAllowedFields();
-        $data = array_intersect_key($this->data, array_flip($allowedFields));
-        $mappedData = $this->mapFieldsToColumns($data);
+        $mappedData = $this->writableColumns($this->data);
         $columns = array_column($this->meta->fieldMappings, 'columnName');
         if (in_array('updated_at', $columns, true)) {
             $mappedData['updated_at'] = date('Y-m-d H:i:s');
@@ -1705,6 +1701,51 @@ final class JsonApiQueryBuilder
     private function getColumnName(string $field): string
     {
         return $this->meta->fieldMappings[$field]['columnName'] ?? $field;
+    }
+
+    /**
+     * The columns a create or update may write, from field-keyed data.
+     *
+     * Allowed fields map through their column names. Allowed to-one
+     * relationships whose foreign key lives on this table map through their
+     * join column, so `['organization' => 5]` — the shape
+     * {@see \Modufolio\JsonApi\JsonApiRequestDeserializer} produces for a
+     * to-one — writes `organization_id`. A null clears it. To-many data is
+     * left out: it lives on another table (or a join table) and is not a
+     * column of this row. Anything else in `$data` is dropped, so a client
+     * cannot write a field it was not configured to see.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return array<string, mixed>
+     */
+    private function writableColumns(array $data): array
+    {
+        $fields = array_intersect_key($data, array_flip($this->getAllowedFields()));
+        $columns = $this->mapFieldsToColumns($fields);
+
+        foreach ($this->getAllowedRelationships() as $relationship) {
+            if (!array_key_exists($relationship, $data) || !$this->meta->hasAssociation($relationship)) {
+                continue;
+            }
+            $mapping = $this->meta->getAssociationMapping($relationship);
+            if (!($mapping['type'] & ClassMetadata::TO_ONE) || !isset($mapping['joinColumns'][0]['name'])) {
+                // Silently ignoring it would let a to-many "update" succeed
+                // while changing nothing — the worst kind of no-op.
+                throw new InvalidArgumentException(
+                    "Relationship '$relationship' is not written through this resource: only a to-one whose foreign key lives on it is."
+                );
+            }
+            $value = $data[$relationship];
+            if (is_array($value)) {
+                throw new InvalidArgumentException(
+                    "Relationship '$relationship' is to-one and takes a single id, not a list."
+                );
+            }
+            $columns[$mapping['joinColumns'][0]['name']] = $value;
+        }
+
+        return $columns;
     }
 
     /**

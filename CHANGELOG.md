@@ -9,6 +9,73 @@ behaviour may change in any minor release.
 
 ## [Unreleased]
 
+### Added
+
+- **JSON:API 1.1 content negotiation.** `Http\MediaType` parses a media type
+  with the `ext` and `profile` parameters as the quoted, space-separated URI
+  lists the specification defines, keeping them apart from every other
+  parameter; `Http\MediaTypeNegotiator` applies the rules — 415 for a
+  `Content-Type` carrying a foreign parameter (`charset` included) or an
+  extension the server does not implement, 406 when every JSON:API instance
+  in `Accept` is unusable, unsupported profiles ignored, wildcards accepted —
+  and returns the `MediaType` the response must be sent as.
+  `ResponseFactory::jsonApi()` writes it into `Content-Type` (with
+  `Vary: Accept`); `JsonApiDocument::setMediaType()` writes the same lists
+  into the `jsonapi` object, so header and document agree as the
+  specification requires. See [docs/reference/http.md](docs/reference/http.md).
+- **The Atomic Operations extension** (`https://jsonapi.org/ext/atomic`).
+  `Atomic\OperationsDocument` validates an `atomic:operations` request
+  (400 with a pointer to the faulty member, optional cap on the number of
+  operations); `Atomic\LidValidator` checks every `lid` against declaration
+  order before anything runs; `Atomic\OperationProcessor` runs the
+  operations in order inside one DBAL transaction, registers each `add`'s
+  `lid` from its result, and re-roots any failure's `source.pointer` at
+  `/atomic:operations/{i}`; `Atomic\ResultsDocument` is the `atomic:results`
+  response with its `jsonapi.ext` and media type. `Atomic\OperationHandler`
+  is the one interface to implement; `Atomic\QueryBuilderOperationHandler`
+  ships, running resource `add`/`update`/`remove` and to-one relationship
+  `update` through `JsonApiQueryBuilder` so allow-lists and scopes apply
+  unchanged. See [docs/atomic-operations.md](docs/atomic-operations.md).
+- **Local identifiers.** `LidRegistry` maps a request's `lid`s (scoped by
+  type) to server ids. `JsonApiRequestDeserializer::deserialize()` and
+  `InputNormalizer::normalize()` take one, resolve `{type, lid}` in
+  relationship linkage through it, and return the primary resource's `id`
+  and `lid` beside its attributes.
+- **Link objects.** `Document\LinkObject` builds a 1.1 link object — `href`
+  with `rel`, `describedby`, `title`, `type`, `hreflang`, `meta` — for any
+  links array, including the new top-level `describedby`.
+- `JsonApiDocument::setExtensions()`, `setProfiles()`, `setJsonApiMeta()`
+  and `getJsonApi()` for the `jsonapi` object's 1.1 members;
+  `JsonApiDocument::VERSION`.
+- `ErrorObject::setSourcePointer()`, `setSourceParameter()` and
+  `setSourceHeader()` — the last being the 1.1 `source.header` member.
+- `ResourceObject::getType()`, `getId()`, `getLid()`.
+- `JsonApiUrlParser` takes `rejectUnknownQueryParams: true` to answer a
+  query parameter the endpoint does not process with a 400, as 1.1 requires
+  of servers; `customQueryParams` names the ones to accept besides the
+  specification's families (default: this library's `group` and `having`).
+- **To-one relationships on create and update.** `JsonApiQueryBuilder`
+  writes an allowed to-one whose foreign key lives on the row through its
+  join column, from the `['relationship' => id]` shape the deserializer
+  produces; `null` clears it. A to-many in write data is refused rather
+  than silently ignored.
+- New typed failures: `LidUnresolved` (400), `LidConflict` (400),
+  `OperationMalformed` (400), `OperationUnsupported` (403) and
+  `OperationFailed` (the wrapped failure's status and code).
+
+### Changed
+
+- **`MediaTypeUnsupported` and `MediaTypeUnacceptable` name the header.**
+  Their `source` was `{parameter: content-type}` / `{parameter: accept}`,
+  but `parameter` is reserved for query parameters; JSON:API 1.1 added
+  `source.header` for exactly this, and they now use it:
+  `{header: Content-Type}` / `{header: Accept}`. Both take an optional
+  `detail` for a more specific message.
+- The reference controller in the test fixtures negotiates through
+  `MediaTypeNegotiator` and routes a body carrying the atomic extension to
+  an operations endpoint. A `Content-Type` of `application/vnd.api+json;
+  charset=utf-8` is now a 415 there, as the specification says.
+
 ## [0.9.0] - 2026-09-06
 
 ### Added

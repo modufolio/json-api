@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Modufolio\JsonApi\Tests;
 
 use Modufolio\JsonApi\Exception\ResourceTypeConflict;
+use Modufolio\JsonApi\Exception\LidUnresolved;
 use Modufolio\JsonApi\InputNormalizer;
+use Modufolio\JsonApi\LidRegistry;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
@@ -562,5 +564,57 @@ class InputNormalizerTest extends TestCase
         $result = $this->normalizer->normalize(['name' => 'John Doe'], 'application/json', 'articles');
 
         $this->assertSame(['name' => 'John Doe'], $result['attributes']);
+    }
+
+    /**
+     * JSON:API 1.1: a relationship may point at a resource by its `lid`,
+     * resolved through the registry the request has filled so far.
+     */
+    public function testLidInRelationshipLinkageResolvesThroughTheRegistry(): void
+    {
+        $lids = new LidRegistry();
+        $lids->register('brand', 'new-brand', '12');
+        $lids->register('category', 'c', '2');
+
+        $result = $this->normalizer->normalize([
+            'data' => [
+                'type' => 'product',
+                'lid' => 'new-product',
+                'attributes' => ['name' => 'Widget'],
+                'relationships' => [
+                    'brand' => ['data' => ['type' => 'brand', 'lid' => 'new-brand']],
+                    'categories' => ['data' => [['type' => 'category', 'id' => '1'], ['type' => 'category', 'lid' => 'c']]],
+                ],
+            ],
+        ], 'application/vnd.api+json', 'product', $lids);
+
+        $this->assertSame(12, $result['relationships']['brand']);
+        $this->assertSame([1, 2], $result['relationships']['categories']);
+        $this->assertSame('new-product', $result['lid']);
+        $this->assertNull($result['id']);
+    }
+
+    public function testLidWithoutARegistryIsRejected(): void
+    {
+        $this->expectException(LidUnresolved::class);
+
+        $this->normalizer->normalize([
+            'data' => [
+                'type' => 'product',
+                'relationships' => ['brand' => ['data' => ['type' => 'brand', 'lid' => 'x']]],
+            ],
+        ], 'application/vnd.api+json', 'product');
+    }
+
+    public function testPrimaryIdIsReturnedBesideAttributes(): void
+    {
+        $result = $this->normalizer->normalize(
+            ['data' => ['type' => 'product', 'id' => '9', 'attributes' => []]],
+            'application/vnd.api+json',
+            'product',
+        );
+
+        $this->assertSame('9', $result['id']);
+        $this->assertNull($result['lid']);
     }
 }

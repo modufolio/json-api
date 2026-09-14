@@ -28,13 +28,22 @@ between releases; the code is not.
 
 | Class | Status | Code | Source |
 |-------|--------|------|--------|
-| `MediaTypeUnsupported` | 415 | `MEDIA_TYPE_UNSUPPORTED` | `parameter: content-type` |
-| `MediaTypeUnacceptable` | 406 | `MEDIA_TYPE_UNACCEPTABLE` | `parameter: accept` |
+| `MediaTypeUnsupported` | 415 | `MEDIA_TYPE_UNSUPPORTED` | `header: Content-Type` |
+| `MediaTypeUnacceptable` | 406 | `MEDIA_TYPE_UNACCEPTABLE` | `header: Accept` |
 | `ResourceNotFound` | 404 | `RESOURCE_NOT_FOUND` | — |
 | `QueryParamMalformed` | 400 | `QUERY_PARAM_MALFORMED` | the parameter, as the client wrote it |
 | `InclusionUnrecognized` | 400 | `INCLUSION_UNRECOGNIZED` | `parameter: include` |
 | `FieldUnrecognized` | 400 | `FIELD_UNRECOGNIZED` | `parameter: fields` |
 | `ResourceTypeConflict` | 409 | `RESOURCE_TYPE_CONFLICT` | `pointer: /data/type` |
+| `LidUnresolved` | 400 | `LID_UNRESOLVED` | the identifier's pointer, when known |
+| `LidConflict` | 400 | `LID_CONFLICT` | the identifier's pointer, when known |
+| `OperationMalformed` | 400 | `ATOMIC_OPERATION_MALFORMED` | `pointer` into `atomic:operations` |
+| `OperationUnsupported` | 403 | `ATOMIC_OPERATION_UNSUPPORTED` | `pointer` into `atomic:operations` |
+| `OperationFailed` | the wrapped failure's | the wrapped failure's | the wrapped failure's pointer, re-rooted at `/atomic:operations/{i}` |
+
+The two media type failures name the header at fault through the JSON:API
+1.1 `source.header` member (before 1.1 they used `parameter`, which the
+specification reserves for query parameters).
 
 Each also exposes the input that caused it — `getMediaType()`, `getFields()`,
 `getIncludePath()`, `getQueryParam()`, `getId()`, `getExpectedType()` and
@@ -47,13 +56,20 @@ message.
 `InclusionUnrecognized` for an `include` path that names an unknown
 relationship, nests too deeply, or nests through a to-many. `JsonApiUrlParser`
 raises `QueryParamMalformed` for a `fields`, `include` or `sort` value that is
-not a comma-separated string. `JsonApiRequestDeserializer` — and so
+not a comma-separated string, and — when constructed with
+`rejectUnknownQueryParams: true` — for any query parameter the endpoint does
+not process. `JsonApiRequestDeserializer` — and so
 `InputNormalizer` — raises `ResourceTypeConflict` when a JSON:API body carries
 no `type`, or one other than the endpoint's; the specification requires a 409
-there rather than a 400. The remaining types
-are vocabulary for your own controller: the builder does not perform content
-negotiation, and reports a missing record as `['data' => null]` rather than
-throwing, so the caller can decide between a 404 and a null relationship.
+there rather than a 400. It raises `LidUnresolved` for a relationship
+identifier whose `lid` no `LidRegistry` knows. `MediaTypeNegotiator` raises
+the two media type failures. The atomic operations classes raise
+`OperationMalformed` while parsing, `OperationUnsupported` from the shipped
+handler, and `OperationFailed` from the processor around any failure a
+handler throws. `ResourceNotFound` is vocabulary for your own controller:
+the builder reports a missing record as `['data' => null]` rather than
+throwing, so the caller can decide between a 404 and a null relationship
+(the atomic handler does throw it).
 
 ## Handling them
 

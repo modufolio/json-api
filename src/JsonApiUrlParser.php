@@ -11,11 +11,35 @@ use Psr\Http\Message\ServerRequestInterface;
 class JsonApiUrlParser
 {
     /**
+     * The query parameter families the specification defines.
+     */
+    public const SPEC_QUERY_PARAMS = ['fields', 'filter', 'include', 'page', 'sort'];
+
+    /**
+     * The parameters this library adds beyond the specification.
+     */
+    public const CUSTOM_QUERY_PARAMS = ['group', 'having'];
+
+    /** @var list<string> */
+    private readonly array $knownQueryParams;
+
+    /**
      * @param array<string, mixed> $config
+     * @param bool                 $rejectUnknownQueryParams Throw a 400 for a query parameter the
+     *                                                       server does not process. JSON:API 1.1
+     *                                                       requires this of servers; it is opt-in
+     *                                                       because analytics and cache-busting
+     *                                                       parameters are commonly tolerated.
+     * @param list<string>         $customQueryParams        Parameters to accept besides the
+     *                                                       specification's, when rejecting unknown
+     *                                                       ones. Defaults to this library's own.
      */
     public function __construct(
-        private readonly array $config
+        private readonly array $config,
+        private readonly bool $rejectUnknownQueryParams = false,
+        array $customQueryParams = self::CUSTOM_QUERY_PARAMS,
     ) {
+        $this->knownQueryParams = [...self::SPEC_QUERY_PARAMS, ...$customQueryParams];
     }
 
     public function parse(ServerRequestInterface $request, string $entityClass): JsonApiQueryParams
@@ -25,6 +49,10 @@ class JsonApiUrlParser
         }
 
         $queryParams = $request->getQueryParams();
+
+        if ($this->rejectUnknownQueryParams) {
+            $this->rejectUnknown($queryParams);
+        }
         $resourceKey = $this->config[$entityClass]['resource_key'];
         $allowedFields = $this->config[$entityClass]['fields'] ?? [];
         $allowedRelationships = $this->config[$entityClass]['relationships'] ?? [];
@@ -134,6 +162,33 @@ class JsonApiUrlParser
             id: $id,
             sparseFields: $sparseFields,
         );
+    }
+
+    /**
+     * Refuse a query parameter this server does not process.
+     *
+     * JSON:API 1.1: "If a server encounters a query parameter that does not
+     * follow the naming conventions above, or the server does not know how
+     * to process it as a query parameter from this specification, it MUST
+     * return 400 Bad Request." The naming convention — an implementation's
+     * own parameter must contain a character outside `a-z` — exists so that
+     * such parameters can never collide with a future specification family;
+     * a server that processes none of them has nothing to distinguish and
+     * rejects them all.
+     *
+     * @param array<array-key, mixed> $queryParams
+     */
+    private function rejectUnknown(array $queryParams): void
+    {
+        foreach (array_keys($queryParams) as $name) {
+            $name = (string) $name;
+            if (!in_array($name, $this->knownQueryParams, true)) {
+                throw new QueryParamMalformed(
+                    $name,
+                    "'$name' is not a query parameter this endpoint processes.",
+                );
+            }
+        }
     }
 
     /**

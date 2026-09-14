@@ -7,13 +7,20 @@ namespace Modufolio\JsonApi\Tests\Fixtures\Controller;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\EntityManagerInterface;
 use InvalidArgumentException;
+use Modufolio\JsonApi\Atomic\AtomicExtension;
+use Modufolio\JsonApi\Atomic\OperationProcessor;
+use Modufolio\JsonApi\Atomic\OperationsDocument;
+use Modufolio\JsonApi\Atomic\QueryBuilderOperationHandler;
 use Modufolio\JsonApi\Document\ErrorObject;
 use Modufolio\JsonApi\Document\JsonApiDocument;
 use Modufolio\JsonApi\Document\ResourceIdentifierObject;
 use Modufolio\JsonApi\Document\ResourceObject;
+use Modufolio\JsonApi\Exception\JsonApiExceptionInterface;
 use Modufolio\JsonApi\Filter\FilterRegistry;
 use Modufolio\JsonApi\Filter\JsonApiFilterHandler;
 use Modufolio\JsonApi\Helpers\Str;
+use Modufolio\JsonApi\Http\MediaType;
+use Modufolio\JsonApi\Http\MediaTypeNegotiator;
 use Modufolio\JsonApi\Http\ResponseFactory;
 use Modufolio\JsonApi\InputNormalizer;
 use Modufolio\JsonApi\JsonApiConfigurator;
@@ -22,8 +29,6 @@ use Modufolio\JsonApi\JsonApiQueryParams;
 use Modufolio\JsonApi\JsonApiRequestDeserializer;
 use Modufolio\JsonApi\JsonApiSerializer;
 use Modufolio\JsonApi\JsonApiUrlParser;
-use Negotiation\Exception\Exception;
-use Negotiation\Negotiator;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
@@ -36,14 +41,13 @@ class JsonApiController
     private readonly FilterRegistry $filterRegistry;
     private readonly JsonApiRequestDeserializer $deserializer;
     private readonly InputNormalizer $inputNormalizer;
-    private readonly Negotiator $negotiator;
+    private readonly MediaTypeNegotiator $negotiator;
 
-    private const SUPPORTED_CONTENT_TYPES = [
-        'application/vnd.api+json',
-        'application/json',
-    ];
-
-    private const JSON_API_MEDIA_TYPE = 'application/vnd.api+json';
+    /**
+     * The media type the current response goes out as: what negotiation
+     * settled on for this request, or plain JSON:API before it ran.
+     */
+    private MediaType $responseMediaType;
 
     public function __construct(
         private readonly EntityManagerInterface $em,
@@ -66,7 +70,13 @@ class JsonApiController
         $this->filterRegistry = $filterRegistry ?? $this->createDefaultFilterRegistry();
         $this->deserializer = new JsonApiRequestDeserializer();
         $this->inputNormalizer = new InputNormalizer();
-        $this->negotiator = new Negotiator();
+        // JSON:API 1.1 content negotiation: this endpoint implements the
+        // Atomic Operations extension and also reads plain JSON bodies.
+        $this->negotiator = new MediaTypeNegotiator(
+            supportedExtensions: [AtomicExtension::URI],
+            otherContentTypes: ['application/json'],
+        );
+        $this->responseMediaType = MediaType::jsonApi();
     }
 
     /**
@@ -94,27 +104,16 @@ class JsonApiController
             );
         }
 
-        // Validate Content-Type header for requests with body (POST, PATCH, PUT)
-        if (in_array($request->getMethod(), ['POST', 'PATCH', 'PUT'])) {
-            $contentType = $request->getHeaderLine('Content-Type');
-            if (!$this->isValidContentType($contentType)) {
-                return $this->errorResponse(
-                    'Unsupported Content-Type. Supported types: application/vnd.api+json, application/json',
-                    415
-                );
-            }
+        try {
+            $requestType = $this->negotiate($request);
+        } catch (JsonApiExceptionInterface $e) {
+            return $this->exceptionResponse($e);
         }
 
-        // Validate Accept header for JSON:API requests only
-        $accept = $request->getHeaderLine('Accept');
-        $contentType = $request->getHeaderLine('Content-Type');
-        $isJsonApiRequest = str_contains($contentType, 'application/vnd.api+json');
-
-        if ($isJsonApiRequest && $accept && !$this->isValidAcceptHeader($accept)) {
-            return $this->errorResponse(
-                'Servers MUST respond with a 406 Not Acceptable status code if a request\'s Accept header contains the JSON:API media type and all instances of that media type are modified with media type parameters.',
-                406
-            );
+        // A body carrying the atomic extension is an operations request,
+        // whatever resource the route named.
+        if ($requestType !== null && in_array(AtomicExtension::URI, $requestType->extensions, true)) {
+            return $this->operations($request);
         }
 
         return match ($operation) {
@@ -398,6 +397,74 @@ class JsonApiController
         return $this->jsonApiResponse($document);
     }
 
+    /**
+     * Run an atomic operations request: `POST` with
+     * `Content-Type: application/vnd.api+json; ext="https://jsonapi.org/ext/atomic"`.
+     */
+    private function operations(ServerRequestInterface $request): ResponseInterface
+    {
+        if ($request->getMethod() !== 'POST') {
+            return $this->errorResponse('Atomic operations must be sent with POST', 405);
+        }
+
+        $payload = json_decode($request->getBody()->getContents(), true);
+        if (!is_array($payload)) {
+            return $this->errorResponse('Invalid JSON: ' . json_last_error_msg(), 400);
+        }
+
+        $handler = new QueryBuilderOperationHandler(
+            $this->config,
+            fn (string $entityClass) => new JsonApiQueryBuilder(
+                $this->config,
+                $this->em,
+                $this->em->getConnection(),
+                $entityClass,
+                $this->filterRegistry,
+            ),
+        );
+
+        try {
+            $operations = OperationsDocument::parse($payload);
+            $results = (new OperationProcessor($handler, $this->em->getConnection()))->process($operations);
+        } catch (JsonApiExceptionInterface $e) {
+            return $this->exceptionResponse($e);
+        }
+
+        if ($results->isEmpty()) {
+            return $this->responseFactory->empty(204);
+        }
+
+        return $this->responseFactory->jsonApi($results->toArray(), 200, $results->mediaType());
+    }
+
+    /**
+     * Apply JSON:API 1.1 content negotiation to the request.
+     *
+     * Returns the body's media type (null when there is no body), and records
+     * the media type the response has to go out as.
+     *
+     * @throws JsonApiExceptionInterface 415 or 406
+     */
+    private function negotiate(ServerRequestInterface $request): ?MediaType
+    {
+        $requestType = null;
+        if (in_array($request->getMethod(), ['POST', 'PATCH', 'PUT'], true)) {
+            $requestType = $this->negotiator->negotiateContentType($request->getHeaderLine('Content-Type'));
+        }
+
+        $this->responseMediaType = $this->negotiator->negotiateAccept($request->getHeaderLine('Accept'));
+
+        return $requestType;
+    }
+
+    private function exceptionResponse(JsonApiExceptionInterface $e): ResponseInterface
+    {
+        $document = new JsonApiDocument();
+        $document->setErrors([$e->toErrorObject()]);
+
+        return $this->jsonApiResponse($document, $e->getStatus());
+    }
+
     private function createResourceObject(array $item, string $resourceKey): ResourceObject
     {
         $id = (string)($item['id'] ?? '');
@@ -597,90 +664,10 @@ class JsonApiController
 
     private function jsonApiResponse(JsonApiDocument $document, int $status = 200): ResponseInterface
     {
-        return $this->responseFactory->json(
-            $document->toArray(),
-            $status,
-            ['Content-Type' => 'application/vnd.api+json']
-        );
-    }
+        // Header and `jsonapi` object both name what negotiation applied.
+        $document->setMediaType($this->responseMediaType);
 
-    /**
-     * Validate Content-Type header using content negotiation
-     *
-     * Supports both JSON:API and plain JSON formats
-     *
-     * @param string $contentType
-     * @return bool
-     * @throws Exception
-     */
-    private function isValidContentType(string $contentType): bool
-    {
-        if (empty($contentType)) {
-            return false;
-        }
-
-        // Use negotiator to check if content type is supported
-        $mediaType = $this->negotiator->getBest($contentType, self::SUPPORTED_CONTENT_TYPES);
-
-        if ($mediaType === null) {
-            return false;
-        }
-
-        // For JSON:API, validate that no unsupported media type parameters are present
-        if ($mediaType->getType() === self::JSON_API_MEDIA_TYPE) {
-            $parameters = $mediaType->getParameters();
-
-            // JSON:API spec only allows 'ext' and 'profile' parameters
-            // charset is allowed for both formats
-            foreach (array_keys($parameters) as $param) {
-                if (!in_array($param, ['ext', 'profile', 'charset'], true)) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Validate Accept header using content negotiation
-     *
-     * According to JSON:API spec, the Accept header must not contain media type parameters
-     * except for 'ext' and 'profile' (and 'q' for quality)
-     *
-     * @param string $accept
-     * @return bool
-     */
-    private function isValidAcceptHeader(string $accept): bool
-    {
-        if (empty($accept)) {
-            return true;
-        }
-
-        // If Accept header doesn't contain JSON:API media type, it's valid
-        if (!str_contains($accept, self::JSON_API_MEDIA_TYPE)) {
-            return true;
-        }
-
-        // Parse all media types in the Accept header
-        $mediaTypes = $this->negotiator->getBest($accept, [self::JSON_API_MEDIA_TYPE]);
-
-        if ($mediaTypes === null) {
-            // JSON:API not in Accept header or not acceptable
-            return true;
-        }
-
-        // Validate JSON:API media type parameters
-        $parameters = $mediaTypes->getParameters();
-
-        // Only 'ext', 'profile', and 'q' (quality) are allowed
-        foreach (array_keys($parameters) as $param) {
-            if (!in_array($param, ['ext', 'profile', 'q'], true)) {
-                return false;
-            }
-        }
-
-        return true;
+        return $this->responseFactory->jsonApi($document, $status, $this->responseMediaType);
     }
 
     /**

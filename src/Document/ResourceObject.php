@@ -40,6 +40,21 @@ class ResourceObject implements \JsonSerializable
         return $this;
     }
 
+    public function getType(): string
+    {
+        return $this->type;
+    }
+
+    public function getId(): ?string
+    {
+        return $this->id;
+    }
+
+    public function getLid(): ?string
+    {
+        return $this->lid;
+    }
+
     /**
      * Set resource attributes
      *

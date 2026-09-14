@@ -41,10 +41,11 @@ class InputNormalizer
      * @param array<string, mixed> $payload The decoded request payload
      * @param string $contentType The request Content-Type header
      * @param string $expectedResourceType The expected JSON:API resource type (for JSON:API format)
+     * @param LidRegistry|null $lids Local identifiers already assigned in this request, for `lid` linkage
      * @return array<string, mixed> Normalized data array with attributes and relationships
      * @throws InvalidArgumentException If the payload is invalid
      */
-    public function normalize(array $payload, string $contentType, string $expectedResourceType): array
+    public function normalize(array $payload, string $contentType, string $expectedResourceType, ?LidRegistry $lids = null): array
     {
         $mediaType = $this->negotiator->getBest($contentType, self::SUPPORTED_FORMATS);
 
@@ -54,7 +55,7 @@ class InputNormalizer
         }
 
         return match ($mediaType->getType()) {
-            'application/vnd.api+json' => $this->normalizeJsonApi($payload, $expectedResourceType),
+            'application/vnd.api+json' => $this->normalizeJsonApi($payload, $expectedResourceType, $lids),
             'application/json' => $this->normalizeJson($payload),
             default => $this->normalizeJson($payload),
         };
@@ -89,11 +90,11 @@ class InputNormalizer
      *
      * @return array<string, mixed>
      */
-    private function normalizeJsonApi(array $payload, string $expectedResourceType): array
+    private function normalizeJsonApi(array $payload, string $expectedResourceType, ?LidRegistry $lids): array
     {
         // The body's `type` must name the resource the endpoint serves: a
         // POST /articles carrying `type: "users"` is a conflict, not a request.
-        return $this->jsonApiDeserializer->deserialize($payload, $expectedResourceType, requireType: true);
+        return $this->jsonApiDeserializer->deserialize($payload, $expectedResourceType, requireType: true, lids: $lids);
     }
 
     /**

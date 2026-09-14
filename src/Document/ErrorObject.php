@@ -24,7 +24,10 @@ class ErrorObject implements \JsonSerializable
     /**
      * Set links that lead to further details about this error
      *
-     * @param array<string, string|array<string, mixed>> $links
+     * JSON:API 1.1 names two: `about`, a page describing this occurrence, and
+     * `type`, a page describing the error's type in general.
+     *
+     * @param array<string, string|LinkObject|array<string, mixed>> $links
      * @return self
      */
     public function setLinks(array $links): self
@@ -84,6 +87,11 @@ class ErrorObject implements \JsonSerializable
     /**
      * Set the source of the error
      *
+     * The specification names three members, and says an error should carry
+     * one of them or none: `pointer` (into the request document), `parameter`
+     * (a query parameter) or `header` (a request header). The typed setters
+     * below each set exactly one.
+     *
      * @param array<string, string> $source
      * @return self
      */
@@ -91,6 +99,31 @@ class ErrorObject implements \JsonSerializable
     {
         $this->error['source'] = $source;
         return $this;
+    }
+
+    /**
+     * Blame a part of the request document, as a JSON Pointer (RFC 6901):
+     * `/data/attributes/title`.
+     */
+    public function setSourcePointer(string $pointer): self
+    {
+        return $this->setSource(['pointer' => $pointer]);
+    }
+
+    /**
+     * Blame a query parameter, as the client wrote it: `filter[author]`.
+     */
+    public function setSourceParameter(string $parameter): self
+    {
+        return $this->setSource(['parameter' => $parameter]);
+    }
+
+    /**
+     * Blame a request header (JSON:API 1.1): `Content-Type`, `Accept`.
+     */
+    public function setSourceHeader(string $header): self
+    {
+        return $this->setSource(['header' => $header]);
     }
 
     /**

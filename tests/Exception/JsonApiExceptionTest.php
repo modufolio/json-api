@@ -61,8 +61,8 @@ class JsonApiExceptionTest extends TestCase
     {
         $this->assertSame(['parameter' => 'page[size]'], (new QueryParamMalformed('page[size]', 'Bad.'))->getSource());
         $this->assertSame(['parameter' => 'include'], (new InclusionUnrecognized('a.b', 'Bad.'))->getSource());
-        $this->assertSame(['parameter' => 'content-type'], (new MediaTypeUnsupported('text/xml'))->getSource());
-        $this->assertSame(['parameter' => 'accept'], (new MediaTypeUnacceptable('text/xml'))->getSource());
+        $this->assertSame(['header' => 'Content-Type'], (new MediaTypeUnsupported('text/xml'))->getSource());
+        $this->assertSame(['header' => 'Accept'], (new MediaTypeUnacceptable('text/xml'))->getSource());
     }
 
     /**

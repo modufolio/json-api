@@ -6,11 +6,12 @@ Reference for the public classes of `modufolio/json-api`, grouped by responsibil
 |------|---------|------|
 | Configuration | `JsonApiConfigurator`, `ResourceConfigurator`, `JsonApiResource` | [configuration.md](configuration.md) |
 | Request → query | `JsonApiUrlParser`, `JsonApiQueryParams`, `JsonApiQueryBuilder` | [query.md](query.md) |
-| Input handling | `InputNormalizer`, `JsonApiRequestDeserializer` | [input.md](input.md) |
-| Documents & serialization | `JsonApiDocument`, `ResourceObject`, `ResourceIdentifierObject`, `ErrorObject`, `JsonApiSerializer` | [documents.md](documents.md) |
+| Input handling | `InputNormalizer`, `JsonApiRequestDeserializer`, `LidRegistry` | [input.md](input.md) |
+| Documents & serialization | `JsonApiDocument`, `ResourceObject`, `ResourceIdentifierObject`, `LinkObject`, `ErrorObject`, `JsonApiSerializer` | [documents.md](documents.md) |
 | Filters | `FilterInterface`, `FilterRegistry`, `JsonApiFilterHandler`, `SearchFilter`, `SearchStrategy`, `DateFilter` | [filters.md](filters.md) |
-| Errors | `JsonApiExceptionInterface`, `MediaTypeUnsupported`, `MediaTypeUnacceptable`, `ResourceNotFound`, `QueryParamMalformed`, `InclusionUnrecognized`, `FieldUnrecognized` | [errors.md](errors.md) |
-| HTTP, pagination, utilities | `ResponseFactory`, `JsonApiPaginator`, `Str`, `SafeExpressionBuilder` | [http.md](http.md) |
+| Errors | `JsonApiExceptionInterface`, `MediaTypeUnsupported`, `MediaTypeUnacceptable`, `ResourceNotFound`, `QueryParamMalformed`, `InclusionUnrecognized`, `FieldUnrecognized`, `ResourceTypeConflict`, `LidUnresolved`, `LidConflict`, `OperationMalformed`, `OperationUnsupported`, `OperationFailed` | [errors.md](errors.md) |
+| HTTP, pagination, utilities | `MediaType`, `MediaTypeNegotiator`, `ResponseFactory`, `JsonApiPaginator`, `Str`, `SafeExpressionBuilder` | [http.md](http.md) |
+| Atomic operations | `AtomicExtension`, `Operation`, `OperationRef`, `OperationsDocument`, `OperationHandler`, `QueryBuilderOperationHandler`, `OperationProcessor`, `OperationResult`, `ResultsDocument` | [atomic.md](atomic.md) |
 | Value casting | `AttributeCaster` | [input.md](input.md) |
 
 All classes live under the `Modufolio\JsonApi` namespace (sub-namespaces as shown on each page).
@@ -48,4 +49,4 @@ $document->setData(array_map(
 echo json_encode($document->toArray());
 ```
 
-See the guides for narrative explanations: [Installation](../installation.md), [Basic Usage](../basic-usage.md), [Configuration](../configuration.md), [Query Builder](../query-builder.md), [Filtering](../filtering.md).
+See the guides for narrative explanations: [Installation](../installation.md), [Basic Usage](../basic-usage.md), [Configuration](../configuration.md), [Query Builder](../query-builder.md), [Filtering](../filtering.md), [Atomic Operations](../atomic-operations.md).
