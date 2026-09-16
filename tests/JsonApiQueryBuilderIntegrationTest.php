@@ -6,6 +6,8 @@ namespace Modufolio\JsonApi\Tests;
 
 use Modufolio\JsonApi\Exception\QueryParamMalformed;
 use Modufolio\JsonApi\JsonApiQueryBuilder;
+use Modufolio\JsonApi\Query\RowTransformer;
+use Modufolio\JsonApi\Query\SchemaRegistry;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Contact;
 use Modufolio\JsonApi\Tests\Fixtures\Entity\Account;
 use Modufolio\JsonApi\Tests\Fixtures\TestDatabaseSetup;
@@ -145,16 +147,8 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
 
     public function testTransformRowWithRelationships(): void
     {
-        $queryBuilder = new JsonApiQueryBuilder(
-            $this->config,
-            $this->em,
-            $this->em->getConnection(),
-            Contact::class
-        );
-
-        $reflection = new \ReflectionClass($queryBuilder);
-        $method = $reflection->getMethod('transformRowToJsonApi');
-        $method->setAccessible(true);
+        $schemas = new SchemaRegistry($this->config, $this->em);
+        $transformer = new RowTransformer($schemas);
 
         $row = [
             'id'              => 1,
@@ -163,7 +157,7 @@ class JsonApiQueryBuilderIntegrationTest extends TestCase
             '_rel_account_id' => 5,
         ];
 
-        $result = $method->invoke($queryBuilder, $row);
+        $result = $transformer->primary($row, $schemas->of(Contact::class));
 
         $this->assertArrayHasKey('id', $result);
         $this->assertArrayHasKey('attributes', $result);
